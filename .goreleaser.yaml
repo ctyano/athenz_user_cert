@@ -1,0 +1,34 @@
+---
+builds:
+  - id: "athenz_user_cert"
+    dir: .
+    main: ./cmd
+    binary: athenz_user_cert
+    ignore:
+      - goos: darwin
+        goarch: 386
+    # Custom ldflags.
+    # For more info refer to: https://pkg.go.dev/cmd/go#hdr-Compile_packages_and_dependencies
+    # and https://pkg.go.dev/cmd/link
+    #
+    # Default: '-s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}} -X main.builtBy=goreleaser'.
+    # Templates: allowed.
+    #ldflags:
+    #  - -s -w -X main.build={{.Version}}
+archives:
+  - id: homebrew
+    format: zip
+# https://github.com/goreleaser/goreleaser/blob/v1.13.1/www/docs/customization/homebrew.md
+# curl -sL https://git.io/goreleaser | VERSION=v1.13.1 GITHUB_TOKEN=<GITHUB_TOKEN> bash 
+brews:
+  - tap:
+      owner: ctyano
+      name: athenz_user_cert
+    folder: Formula
+    homepage: https://github.com/ctyano/athenz_user_cert
+    description: CLI to retrieve Athenz-compatible User Certificate
+    ids:
+      - homebrew
+    test: |
+      system "#{bin}/athenz_user_cert version"
+
