@@ -53,6 +53,12 @@ func SendCSR(url string, csr string) error {
 		return fmt.Errorf("received non-OK response: %s", resp.Status)
 	}
 
-	fmt.Println("CSR sent successfully!")
+	var responseBody map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
+		return fmt.Errorf("failed to parse JSON response: %v", err)
+	}
+
+	fmt.Printf("Response: %+v\n", responseBody)
+
 	return nil
 }
