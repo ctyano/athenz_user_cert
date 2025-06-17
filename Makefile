@@ -1,8 +1,5 @@
-.PHONY: submodule-update build test clean
-.DEFAULT_GOAL := build
-
-ifneq ($(APP_NAME),)
-APP_NAME := $(shell basename $$(pwd))
+ifeq ($(APP_NAME),)
+APP_NAME := $(shell basename $(shell pwd))
 endif
 
 LDFLAGS :=
@@ -21,8 +18,10 @@ ifneq ($(LDFLAGS_ARGS),)
 LDFLAGS += -ldflags "$(LDFLAGS_ARGS)"
 endif
 
+.PHONY: submodule-update build test clean
+
 build: submodule-update
-	@echo "Building..."
+	@echo "Building $(APP_NAME)..."
 	go mod tidy
 	CGO_ENABLED=1 go build $(LDFLAGS) -o $(GOPATH)/bin/$(APP_NAME) cmd/*.go
 

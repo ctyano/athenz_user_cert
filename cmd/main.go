@@ -3,38 +3,38 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 )
 
 func main() {
-	// Execute subcommand
-	if len(os.Args) == 1 || strings.HasSuffix(os.Args[1], "help") {
-		usage := `Usage:
-  version:
-    	print version
-  generate:
-    	generate private key and print the corresponding public key
-  csr:
-    	generate and print certificate signing request from the private key
-`
-		fmt.Printf(usage)
-		flag.PrintDefaults()
-		return
-	}
-	switch os.Args[1] {
-	case "version":
-		versionFlagSet := flag.NewFlagSet("version", flag.ExitOnError)
-		ExecuteVersionCommand(os.Args[2:], versionFlagSet)
-	case "generate":
-		generateFlagSet := flag.NewFlagSet("generate", flag.ExitOnError)
-		ExecuteGenerateCommand(os.Args[2:], generateFlagSet)
-	case "csr":
-		csrFlagSet := flag.NewFlagSet("csr", flag.ExitOnError)
-		ExecuteCsrCommand(os.Args[2:], csrFlagSet)
-	default:
-		log.Fatalf("%q is not valid command.", os.Args[1])
-		return
+	appname := os.Args[0]
+	if len(os.Args) == 2 {
+		usage := fmt.Sprintf(`Usage of %s:
+  Generate certificate signing request and send the csr to the server.
+
+  Subcommands:
+    version:
+    	Print the version of this CLI.
+    generate:
+    	Generate private key and print the corresponding public key.
+`, appname)
+		switch {
+		case "version" == os.Args[1]:
+			versionFlagSet := flag.NewFlagSet("version", flag.ExitOnError)
+			ExecuteVersionCommand(os.Args[2:], versionFlagSet)
+		case "generate" == os.Args[1]:
+			generateFlagSet := flag.NewFlagSet("generate", flag.ExitOnError)
+			ExecuteGenerateCommand(os.Args[2:], generateFlagSet)
+		case strings.HasSuffix(os.Args[1], "help"):
+			fmt.Printf(usage)
+			flag.PrintDefaults()
+		default:
+			csrFlagSet := flag.NewFlagSet("", flag.ExitOnError)
+			ExecuteCsrCommand(os.Args[1:], csrFlagSet)
+		}
+	} else {
+		csrFlagSet := flag.NewFlagSet("", flag.ExitOnError)
+		ExecuteCsrCommand(os.Args[1:], csrFlagSet)
 	}
 }

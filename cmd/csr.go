@@ -13,12 +13,13 @@ import (
 	"strings"
 
 	"github.com/ctyano/athenz-user-cert/pkg/certificate"
+	"github.com/ctyano/athenz-user-cert/pkg/http"
 )
 
 func ExecuteCsrCommand(arg []string, csrFlagSet *flag.FlagSet) {
 
 	// Parse argument flags
-	csrPath := csrFlagSet.String("csr", "-", "Output filepath for the certificate sign request")
+	csrDestination := csrFlagSet.String("csr", "https://crypki-softhsm.crypki/v3/sig/x509-cert/keys/x509-key", "Target destination for the certificate sign request")
 	commonName := csrFlagSet.String("cn", "", "Subject Common Name for the certificate")
 	dnsarg := csrFlagSet.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
 	emailarg := csrFlagSet.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
@@ -84,13 +85,19 @@ func ExecuteCsrCommand(arg []string, csrFlagSet *flag.FlagSet) {
 		Bytes: csrDER,
 	}
 
-	switch *csrPath {
-	case "-":
+	switch {
+	case strings.HasPrefix(*csrDestination, "https://") || strings.HasPrefix(*csrDestination, "http://"):
+		err = http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)))
+		if err != nil {
+			log.Fatalf("failed to send csr: %v\n", err)
+			return
+		}
+	case *csrDestination == "-":
 		fmt.Printf("%s", pem.EncodeToMemory(csrPEM))
 	default:
-		err = certificate.WritePem(csrPEM, *csrPath)
+		err = certificate.WritePem(csrPEM, *csrDestination)
 		if err != nil {
-			log.Fatalf("failed to save x.509 certificate signing request to %s: %s", *csrPath, err)
+			log.Fatalf("failed to save x.509 certificate signing request to %s: %s", *csrDestination, err)
 			return
 		}
 	}
