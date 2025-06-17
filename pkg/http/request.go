@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func SendCSR(url string, csr string) error {
+func SendCSR(url string, csr string, headers *map[string][]string) error {
 	type KeyMeta struct {
 		Identifier string `json:"identifier"`
 	}
@@ -42,6 +42,13 @@ func SendCSR(url string, csr string) error {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	if headers != nil {
+		for key, values := range *headers {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -49,7 +56,7 @@ func SendCSR(url string, csr string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode > http.StatusBadRequest {
 		return fmt.Errorf("received non-OK response: %s", resp.Status)
 	}
 
@@ -58,7 +65,7 @@ func SendCSR(url string, csr string) error {
 		return fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
-	fmt.Printf("Response: %+v\n", responseBody)
+	fmt.Printf("%+v\n", responseBody["cert"])
 
 	return nil
 }

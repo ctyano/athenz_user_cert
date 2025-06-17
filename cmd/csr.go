@@ -1,19 +1,22 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"flag"
 	"fmt"
 	"log"
-	"net"
-	"net/url"
 	"strings"
 
 	"github.com/ctyano/athenz-user-cert/pkg/certificate"
 	"github.com/ctyano/athenz-user-cert/pkg/http"
+	"github.com/ctyano/athenz-user-cert/pkg/oidc"
+)
+
+var (
+	DEFAULT_X509_VALIDITY   = "2592000" // 30 * 24 * 60 * 60 seconds
+	DEFAULT_X509_IDENTIFIER = "athenz"
+	DEFAULT_X509_TIMEOUT    = "10" // seconds
+	DEFAULT_X509_ALGORITHM  = "RSA"
 )
 
 func ExecuteCsrCommand(arg []string, csrFlagSet *flag.FlagSet) {
@@ -28,66 +31,20 @@ func ExecuteCsrCommand(arg []string, csrFlagSet *flag.FlagSet) {
 
 	csrFlagSet.Parse(arg)
 
-	privateKey, err := certificate.GenerateKey("RSA")
-	if err != nil {
-		log.Fatalf("failed to generate a key: %s", err)
-	}
-
-	var sandns, sanemail []string
-	var sanip []net.IP
-	var sanuri []*url.URL
-
-	if *dnsarg != "" {
-		sandns = strings.Split(*dnsarg, ",")
-	}
-	if *emailarg != "" {
-		sanemail = strings.Split(*emailarg, ",")
-	}
-	if *iparg != "" {
-		ips := strings.Split(*iparg, ",")
-		for _, v := range ips {
-			ip := net.ParseIP(strings.TrimSpace(v))
-			if ip != nil {
-				sanip = append(sanip, ip)
-			}
-		}
-	}
-	if *uriarg != "" {
-		uris := strings.Split(*uriarg, ",")
-		for _, v := range uris {
-			uri, err := url.Parse(v)
-			if err == nil && uri.Scheme != "" {
-				log.Fatalf("invalid uri [%s]: %s", v, err)
-				return
-			}
-			sanuri = append(sanuri, uri)
-		}
-	}
-
-	csrTemplate := &x509.CertificateRequest{
-		Subject: pkix.Name{
-			CommonName: *commonName,
-		},
-		DNSNames:       sandns,
-		EmailAddresses: sanemail,
-		IPAddresses:    sanip,
-		URIs:           sanuri,
-	}
-
-	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, privateKey)
-	if err != nil {
-		log.Fatalf("failed to create csr: %w", err)
-		return
-	}
-
-	csrPEM := &pem.Block{
-		Type:  "CERTIFICATE REQUEST",
-		Bytes: csrDER,
-	}
+	err, csrPEM := certificate.GenerateCSR(DEFAULT_X509_ALGORITHM, commonName, dnsarg, emailarg, iparg, uriarg)
 
 	switch {
 	case strings.HasPrefix(*csrDestination, "https://") || strings.HasPrefix(*csrDestination, "http://"):
-		err = http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)))
+		at := oidc.NewAccessToken(true)
+		accesstoken, err := at.GetAuthAccessToken()
+		if err != nil {
+			log.Fatalf("failed to get access token: %v\n", err)
+			return
+		}
+		log.Printf("access token: %v\n", accesstoken)
+		err = http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)), &map[string][]string{
+			"Authorization": []string{"Bearer " + accesstoken},
+		})
 		if err != nil {
 			log.Fatalf("failed to send csr: %v\n", err)
 			return
