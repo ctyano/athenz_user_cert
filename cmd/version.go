@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ctyano/athenz-user-cert/pkg/http"
 	"github.com/ctyano/athenz-user-cert/pkg/oidc"
 )
 
@@ -28,9 +29,15 @@ func ExecuteVersionCommand(arg []string, versionFlagSet *flag.FlagSet) {
 		masked_client_secret = "***"
 	}
 
+	fmt.Printf("CLI Open ID Connect Issuer: %s\n", oidc.DEFAULT_OIDC_ISSUER)
 	fmt.Printf("CLI Open ID Connect Client ID: %s\n", oidc.DEFAULT_OIDC_CLIENT_ID)
 	fmt.Printf("CLI Open ID Connect Client Secret: %s\n", masked_client_secret)
-	fmt.Printf("CLI Open ID Connect Callback: %s\n", oidc.DEFAULT_OIDC_CALLBACK)
-	fmt.Printf("CLI Open ID Connect Issuer: %s\n", oidc.DEFAULT_OIDC_ISSUER)
 	fmt.Printf("CLI Open ID Connect Scopes: %s\n", oidc.DEFAULT_OIDC_SCOPES)
+	fmt.Printf("CLI Open ID Connect Client Listening Address: %s\n", oidc.DEFAULT_OIDC_LISTEN_ADDRESS)
+	fmt.Printf("CLI Open ID Connect Access Token Stored Path: $HOME/%s\n", oidc.DEFAULT_OIDC_ACCESS_TOKEN_PATH)
+
+	fmt.Printf("CLI X.509 Certificate Validity: %s seconds\n", http.DEFAULT_X509_VALIDITY)
+	fmt.Printf("CLI X.509 Certificate Identifier: %s\n", http.DEFAULT_X509_IDENTIFIER)
+	fmt.Printf("CLI X.509 Certificate Request Timeout: %s seconds\n", http.DEFAULT_X509_TIMEOUT)
+	fmt.Printf("CLI X.509 Certificate Key Algorithm: %s\n", http.DEFAULT_X509_ALGORITHM)
 }

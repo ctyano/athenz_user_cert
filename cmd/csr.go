@@ -12,13 +12,6 @@ import (
 	"github.com/ctyano/athenz-user-cert/pkg/oidc"
 )
 
-var (
-	DEFAULT_X509_VALIDITY   = "2592000" // 30 * 24 * 60 * 60 seconds
-	DEFAULT_X509_IDENTIFIER = "athenz"
-	DEFAULT_X509_TIMEOUT    = "10" // seconds
-	DEFAULT_X509_ALGORITHM  = "RSA"
-)
-
 func ExecuteCsrCommand(arg []string, csrFlagSet *flag.FlagSet) {
 
 	// Parse argument flags
@@ -31,11 +24,11 @@ func ExecuteCsrCommand(arg []string, csrFlagSet *flag.FlagSet) {
 
 	csrFlagSet.Parse(arg)
 
-	err, csrPEM := certificate.GenerateCSR(DEFAULT_X509_ALGORITHM, commonName, dnsarg, emailarg, iparg, uriarg)
+	err, csrPEM := certificate.GenerateCSR(http.DEFAULT_X509_ALGORITHM, commonName, dnsarg, emailarg, iparg, uriarg)
 
 	switch {
 	case strings.HasPrefix(*csrDestination, "https://") || strings.HasPrefix(*csrDestination, "http://"):
-		at := oidc.NewAccessToken(true)
+		at := oidc.NewAccessToken(true) // debug: true
 		accesstoken, err := at.GetAuthAccessToken()
 		if err != nil {
 			log.Fatalf("failed to get access token: %v\n", err)

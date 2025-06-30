@@ -8,6 +8,13 @@ import (
 	"time"
 )
 
+var (
+	DEFAULT_X509_VALIDITY   string
+	DEFAULT_X509_IDENTIFIER string
+	DEFAULT_X509_TIMEOUT    string
+	DEFAULT_X509_ALGORITHM  string
+)
+
 func SendCSR(url string, csr string, headers *map[string][]string) error {
 	type KeyMeta struct {
 		Identifier string `json:"identifier"`

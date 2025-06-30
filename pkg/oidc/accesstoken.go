@@ -17,12 +17,13 @@ import (
 )
 
 var (
-	DEFAULT_OIDC_CLIENT_ID      string
-	DEFAULT_OIDC_CLIENT_SECRET  string
-	DEFAULT_OIDC_CALLBACK       string // e.g., http://localhost:8080/callback
-	DEFAULT_OIDC_ISSUER         string // e.g., http://localhost:5556/dex
-	DEFAULT_OIDC_SCOPES         string // e.g. openid email profile
-	DEFAULT_OIDC_LISTEN_ADDRESS string // e.g. :8080, or localhost:4080
+	DEFAULT_OIDC_CLIENT_ID         string
+	DEFAULT_OIDC_CLIENT_SECRET     string
+	DEFAULT_OIDC_ISSUER            string // e.g., http://localhost:5556/dex
+	DEFAULT_OIDC_SCOPES            string // e.g. openid email profile
+	DEFAULT_OIDC_LISTEN_ADDRESS    string // e.g. :8080, or localhost:4080
+	DEFAULT_OIDC_ACCESS_TOKEN_PATH string // under the home directory e.g. .athenz/.accesstoken
+	//DEFAULT_OIDC_CALLBACK          string // e.g., http://localhost:8080/callback
 )
 
 type FileUtil interface {
@@ -40,7 +41,7 @@ type FileIo struct {
 
 func getAccessTokenCachePath() string {
 	h, _ := os.UserHomeDir()
-	return h + "/.athenz/.accesstoken"
+	return h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
 }
 
 func (fio *FileIo) isFreshFile(filename string, maxAge float64) bool {
@@ -109,9 +110,10 @@ func (at *AccessToken) GetAuthAccessToken() (string, error) {
 		"--scope=" + DEFAULT_OIDC_SCOPES,
 		"--provider=" + DEFAULT_OIDC_ISSUER,
 		"--client-id=" + DEFAULT_OIDC_CLIENT_ID,
+		"--client-secret=" + DEFAULT_OIDC_CLIENT_SECRET,
 		"--listen=" + DEFAULT_OIDC_LISTEN_ADDRESS,
-		"--redirect-url=" + DEFAULT_OIDC_CALLBACK,
-		"--console",
+		//"--redirect-url=" + DEFAULT_OIDC_CALLBACK,
+		//"--console",
 	}
 
 	fmt.Println("args: " + strings.Join(args, " "))
@@ -156,7 +158,7 @@ func (at *AccessToken) GetAuthAccessToken() (string, error) {
 
 	if accesstoken != "" {
 		h, _ := os.UserHomeDir()
-		accessTokenFile := h + "/.accesstoken"
+		accessTokenFile := h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
 		data := []byte(accesstoken)
 		at.ioutilWriteFile(accessTokenFile, data, 0600)
 	}
