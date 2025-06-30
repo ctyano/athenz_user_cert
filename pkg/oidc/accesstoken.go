@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,7 +28,8 @@ var (
 )
 
 type FileUtil interface {
-	isFreshFile(filename string, maxage float64) bool
+	isCacheFileFresh(filename string, maxage float64) bool
+	createCacheDir(dirname string) bool
 	getCachedAccessToken() string
 }
 
@@ -36,6 +38,8 @@ type FileIo struct {
 	ioutilReadFile func(string) ([]byte, error)
 	osGetenv       func(string) string
 	osStat         func(string) (fs.FileInfo, error)
+	osIsNotExist   func(error) bool
+	osMkdirAll     func(string, os.FileMode) error
 	debug          bool
 }
 
@@ -44,11 +48,35 @@ func getAccessTokenCachePath() string {
 	return h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
 }
 
-func (fio *FileIo) isFreshFile(filename string, maxAge float64) bool {
+func (fio *FileIo) createCacheDir(dirname string) bool {
+	if fio.debug {
+		fmt.Printf("Checking if directory %s exists...\n", dirname)
+	}
+	if _, err := fio.osStat(dirname); fio.osIsNotExist(err) {
+		if fio.debug {
+			fmt.Printf("Failed to read the cache directory %s. Creating one.\n", dirname)
+		}
+		err := fio.osMkdirAll(dirname, 0755)
+		if err != nil {
+			fmt.Printf("Failed to create directory: %v", err)
+			return false
+		}
+	} else if err != nil {
+		fmt.Printf("Failed to check directory: %v", err)
+		return false
+	} else {
+		if fio.debug {
+			fmt.Printf("The cache directory %s exists.\n", dirname)
+		}
+	}
+	return true
+}
+
+func (fio *FileIo) isCacheFileFresh(filename string, maxAge float64) bool {
 	info, err := fio.osStat(filename)
 	if err != nil {
 		if fio.debug {
-			fmt.Printf("Couldn't read the cache file, error: %v\n", err)
+			fmt.Printf("Could not read the cache file, error: %v\n", err)
 		}
 		return false
 	}
@@ -61,10 +89,10 @@ func (fio *FileIo) isFreshFile(filename string, maxAge float64) bool {
 func (fio *FileIo) getCachedAccessToken() string {
 	h, _ := os.UserHomeDir()
 	accessTokenFile := h + "/.athenz/.accesstoken"
-	if fio.isFreshFile(accessTokenFile, 30) {
+	if fio.isCacheFileFresh(accessTokenFile, 30) {
 		data, err := fio.ioutilReadFile(accessTokenFile)
 		if err != nil {
-			fmt.Printf("Couldn't read the file, error: %v\n", err)
+			fmt.Printf("Could not read the file, error: %v\n", err)
 		}
 		return strings.TrimSpace(string(data))
 	}
@@ -85,6 +113,8 @@ func NewAccessToken(debug bool) *AccessToken {
 		fu: &FileIo{
 			osGetenv:       os.Getenv,
 			osStat:         os.Stat,
+			osIsNotExist:   os.IsNotExist,
+			osMkdirAll:     os.MkdirAll,
 			ioutilReadFile: ioutil.ReadFile,
 			debug:          debug,
 		},
@@ -159,6 +189,7 @@ func (at *AccessToken) GetAuthAccessToken() (string, error) {
 	if accesstoken != "" {
 		h, _ := os.UserHomeDir()
 		accessTokenFile := h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
+		at.fu.createCacheDir(filepath.Dir(accessTokenFile))
 		data := []byte(accesstoken)
 		at.ioutilWriteFile(accessTokenFile, data, 0600)
 	}
