@@ -1,10 +1,16 @@
 package main
 
 import (
+	"encoding/pem"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"strings"
+
+	"github.com/ctyano/athenz-user-cert/pkg/certificate"
+	"github.com/ctyano/athenz-user-cert/pkg/http"
+	"github.com/ctyano/athenz-user-cert/pkg/oidc"
 )
 
 var (
@@ -17,29 +23,59 @@ func main() {
 	if len(os.Args) == 2 {
 		usage := fmt.Sprintf(`Usage of %s:
   Generate certificate signing request and send the csr to the server.
+  Authenticate user with Open ID Connect protocol and retrieve OAuth Access Token.
 
   Subcommands:
     version:
     	Print the version and the pre desined parameters of this CLI.
-    authenticate:
-    	Authenticate user with Open ID Connect protocol and retrieve OAuth Access Token.
 `, appname)
 		switch {
-		case "version" == os.Args[1]:
+		case strings.HasSuffix(os.Args[1], "version"):
 			versionFlagSet := flag.NewFlagSet("version", flag.ExitOnError)
 			ExecuteVersionCommand(os.Args[2:], versionFlagSet)
-		case "authenticate" == os.Args[1]:
-			authenticateFlagSet := flag.NewFlagSet("authenticate", flag.ExitOnError)
-			ExecuteAuthenticateCommand(os.Args[2:], authenticateFlagSet)
+			return
 		case strings.HasSuffix(os.Args[1], "help"):
 			fmt.Printf(usage)
 			flag.PrintDefaults()
-		default:
-			csrFlagSet := flag.NewFlagSet("", flag.ExitOnError)
-			ExecuteCsrCommand(os.Args[1:], csrFlagSet)
+			return
 		}
-	} else {
-		csrFlagSet := flag.NewFlagSet("", flag.ExitOnError)
-		ExecuteCsrCommand(os.Args[1:], csrFlagSet)
+	}
+
+	// Parse argument flags
+	csrDestination := flag.String("csr", "https://certsigner-envoy.athenz/v3/sig/x509-cert/keys/x509-key", "Target destination for the certificate sign request")
+	commonName := flag.String("cn", "", "Subject Common Name for the certificate")
+	dnsarg := flag.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
+	emailarg := flag.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
+	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
+	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
+
+	flag.Parse()
+
+	err, csrPEM := certificate.GenerateCSR(http.DEFAULT_X509_ALGORITHM, commonName, dnsarg, emailarg, iparg, uriarg)
+
+	switch {
+	case strings.HasPrefix(*csrDestination, "https://") || strings.HasPrefix(*csrDestination, "http://"):
+		at := oidc.NewAccessToken(true) // debug: true
+		accesstoken, err := at.GetAuthAccessToken()
+		if err != nil {
+			log.Fatalf("Failed to get access token: %v\n", err)
+			return
+		}
+		log.Printf("Access Token: %v\n", accesstoken)
+		err = http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)), &map[string][]string{
+			"Authorization": []string{"Bearer " + accesstoken},
+		})
+		if err != nil {
+			log.Fatalf("Failed to send csr: %v\n", err)
+			return
+		}
+	case *csrDestination == "-":
+		fmt.Printf("%s", pem.EncodeToMemory(csrPEM))
+	default:
+		err = certificate.WritePem(csrPEM, *csrDestination)
+		if err != nil {
+			log.Fatalf("Failed to save x.509 certificate signing request to %s: %s", *csrDestination, err)
+			return
+		}
 	}
 }
