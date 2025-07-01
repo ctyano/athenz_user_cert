@@ -31,15 +31,15 @@ func ExecuteCsrCommand(arg []string, csrFlagSet *flag.FlagSet) {
 		at := oidc.NewAccessToken(true) // debug: true
 		accesstoken, err := at.GetAuthAccessToken()
 		if err != nil {
-			log.Fatalf("failed to get access token: %v\n", err)
+			log.Fatalf("Failed to get access token: %v\n", err)
 			return
 		}
-		log.Printf("access token: %v\n", accesstoken)
+		log.Printf("Access Token: %v\n", accesstoken)
 		err = http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)), &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
-			log.Fatalf("failed to send csr: %v\n", err)
+			log.Fatalf("Failed to send csr: %v\n", err)
 			return
 		}
 	case *csrDestination == "-":
@@ -47,7 +47,7 @@ func ExecuteCsrCommand(arg []string, csrFlagSet *flag.FlagSet) {
 	default:
 		err = certificate.WritePem(csrPEM, *csrDestination)
 		if err != nil {
-			log.Fatalf("failed to save x.509 certificate signing request to %s: %s", *csrDestination, err)
+			log.Fatalf("Failed to save x.509 certificate signing request to %s: %s", *csrDestination, err)
 			return
 		}
 	}

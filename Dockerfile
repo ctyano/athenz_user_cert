@@ -14,9 +14,7 @@ WORKDIR ${GOPATH}/src/${APP_NAME}
 
 COPY . .
 
-RUN go get ./...
-
-RUN go build -o "${APP_NAME}" \
+RUN make \
     && mv "${APP_NAME}" "/usr/bin/${APP_NAME}"
 
 RUN /usr/bin/${APP_NAME} version

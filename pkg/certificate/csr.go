@@ -16,7 +16,7 @@ import (
 func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *pem.Block) {
 	privateKey, err := GenerateKey(algorithm)
 	if err != nil {
-		log.Fatalf("failed to generate a key: %s", err)
+		log.Fatalf("Failed to generate a key: %s", err)
 	}
 
 	var sandns, sanemail []string
@@ -43,7 +43,7 @@ func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) 
 		for _, v := range uris {
 			uri, err := url.Parse(v)
 			if err == nil && uri.Scheme != "" {
-				log.Fatalf("invalid uri [%s]: %s", v, err)
+				log.Fatalf("Invalid uri [%s]: %s", v, err)
 				return err, nil
 			}
 			sanuri = append(sanuri, uri)
@@ -62,7 +62,7 @@ func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) 
 
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, privateKey)
 	if err != nil {
-		log.Fatalf("failed to create csr: %w", err)
+		log.Fatalf("Failed to create csr: %w", err)
 		return err, nil
 	}
 

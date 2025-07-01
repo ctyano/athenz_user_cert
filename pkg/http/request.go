@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
 var (
-	DEFAULT_X509_VALIDITY   string
-	DEFAULT_X509_IDENTIFIER string
-	DEFAULT_X509_TIMEOUT    string
-	DEFAULT_X509_ALGORITHM  string
+	DEFAULT_X509_VALIDITY   = "30 * 24 * 60 * 60" // 30 days in seconds
+	DEFAULT_X509_IDENTIFIER = "athenz"
+	DEFAULT_X509_TIMEOUT    = "10" // in seconds
+	DEFAULT_X509_ALGORITHM  = "RSA"
 )
 
 func SendCSR(url string, csr string, headers *map[string][]string) error {
@@ -26,26 +28,28 @@ func SendCSR(url string, csr string, headers *map[string][]string) error {
 		Validity int     `json:"validity"`
 	}
 
+	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_X509_VALIDITY))
 	body := RequestBody{
 		CSR: csr,
 		KeyMeta: KeyMeta{
-			Identifier: "athenz",
+			Identifier: DEFAULT_X509_IDENTIFIER,
 		},
-		Validity: 30 * 24 * 60 * 60, // 30 days in seconds
+		Validity: validity,
 	}
 
 	jsonData, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("failed to marshal JSON: %v", err)
+		return fmt.Errorf("Failed to marshal JSON: %v", err)
 	}
 
+	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_X509_TIMEOUT))
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout: time.Duration(timeout) * time.Second,
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %v", err)
+		return fmt.Errorf("Failed to create request: %v", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -59,17 +63,17 @@ func SendCSR(url string, csr string, headers *map[string][]string) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %v", err)
+		return fmt.Errorf("Failed to send request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode > http.StatusBadRequest {
-		return fmt.Errorf("received non-OK response: %s", resp.Status)
+	if resp.StatusCode >= http.StatusBadRequest {
+		return fmt.Errorf("Received non-OK response: %s", resp.Status)
 	}
 
 	var responseBody map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
-		return fmt.Errorf("failed to parse JSON response: %v", err)
+		return fmt.Errorf("Failed to parse JSON response: %v", err)
 	}
 
 	fmt.Printf("%+v\n", responseBody["cert"])
