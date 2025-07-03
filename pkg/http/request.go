@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -68,12 +69,13 @@ func SendCSR(url string, csr string, headers *map[string][]string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		return fmt.Errorf("Received non-OK response: %s", resp.Status)
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body)
 	}
 
 	var responseBody map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
-		return fmt.Errorf("Failed to parse JSON response: %v", err)
+		return fmt.Errorf("Failed to parse JSON response: %s", err)
 	}
 
 	fmt.Printf("%+v\n", responseBody["cert"])
