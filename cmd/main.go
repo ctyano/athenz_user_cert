@@ -48,6 +48,7 @@ func main() {
 	emailarg := flag.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
 	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
 	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
+	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
 
 	flag.Parse()
 
@@ -55,13 +56,15 @@ func main() {
 
 	switch {
 	case strings.HasPrefix(*csrDestination, "https://") || strings.HasPrefix(*csrDestination, "http://"):
-		at := oidc.NewAccessToken(true) // debug: true
+		at := oidc.NewAccessToken(*debug)
 		accesstoken, err := at.GetAuthAccessToken()
 		if err != nil {
 			log.Fatalf("Failed to get access token: %v\n", err)
 			return
 		}
-		log.Printf("Access Token: %v\n", accesstoken)
+		if *debug {
+			log.Printf("Access Token: %v\n", accesstoken)
+		}
 		err = http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)), &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
