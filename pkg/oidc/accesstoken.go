@@ -43,8 +43,9 @@ func getAccessTokenCachePath() string {
 
 func getCachedAccessToken() string {
 	h, _ := os.UserHomeDir()
-	accessTokenFile := h + DEFAULT_OIDC_ACCESS_TOKEN_PATH
+	accessTokenFile := h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
 	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
+	fmt.Printf("validity: %s\n", validity)
 	if isCacheFileFresh(accessTokenFile, float64(validity)) {
 		data, err := ioutil.ReadFile(accessTokenFile)
 		if err != nil {
