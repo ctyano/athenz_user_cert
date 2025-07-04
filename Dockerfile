@@ -6,16 +6,17 @@ RUN set -eux \
 
 RUN cp /usr/share/zoneinfo/Japan /etc/localtime
 
-ENV APP_NAME athenz-user-cert
-
-ENV APP_VERSION test
+ARG APP_NAME=athenz-user-cert
+ENV APP_NAME=${APP_NAME}
+ARG VERSION=test
+ENV VERSION=${VERSION}
 
 WORKDIR ${GOPATH}/src/${APP_NAME}
 
 COPY . .
 
 RUN make \
-    && mv "${APP_NAME}" "/usr/bin/${APP_NAME}"
+    && mv "${GOPATH}/bin/${APP_NAME}" "/usr/bin/${APP_NAME}"
 
 RUN /usr/bin/${APP_NAME} version
 
@@ -27,7 +28,7 @@ FROM alpine
 
 RUN apk add net-tools openssl
 
-ENV APP_NAME athenz-user-cert
+ARG APP_NAME
 
 COPY --from=builder /usr/bin/${APP_NAME} /usr/bin/${APP_NAME}
 
