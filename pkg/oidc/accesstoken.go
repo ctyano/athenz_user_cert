@@ -1,13 +1,13 @@
 package oidc
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +22,7 @@ import (
 var (
 	DEFAULT_OIDC_CLIENT_ID             = "athenz-user-cert"
 	DEFAULT_OIDC_CLIENT_SECRET         = "athenz-user-cert"
-	DEFAULT_OIDC_ISSUER                = "http://localhost:5556/dex"
+	DEFAULT_OIDC_ISSUER                = "http://127.0.0.1:5556/dex"
 	DEFAULT_OIDC_SCOPES                = "openid email profile"
 	DEFAULT_OIDC_LISTEN_ADDRESS        = ":8080"
 	DEFAULT_OIDC_ACCESS_TOKEN_PATH     = ".athenz/.accesstoken"
@@ -43,7 +43,7 @@ func getAccessTokenCachePath() string {
 
 func getCachedAccessToken() string {
 	h, _ := os.UserHomeDir()
-	accessTokenFile := h + "/.athenz/.accesstoken"
+	accessTokenFile := h + DEFAULT_OIDC_ACCESS_TOKEN_PATH
 	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
 	if isCacheFileFresh(accessTokenFile, float64(validity)) {
 		data, err := ioutil.ReadFile(accessTokenFile)
@@ -105,73 +105,50 @@ func GetAuthAccessToken() (string, error) {
 	flag.Parse()
 
 	// ==== CONFIG ====
-	issuer := "http://127.0.0.1:5556/dex" // change as needed
-	clientID := "athenz-user-cert"
-	clientSecret := "athenz-user-cert"
-	redirectURL := "http://localhost:8080/callback"
-	scopes := []string{"openid", "email", "profile"}
-
-	authURL := issuer + "/auth"
-	tokenURL := issuer + "/token"
+	authURL := DEFAULT_OIDC_ISSUER + "/auth"
+	tokenURL := DEFAULT_OIDC_ISSUER + "/token"
 
 	conf := &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		RedirectURL:  redirectURL,
-		Scopes:       scopes,
+		ClientID:     DEFAULT_OIDC_CLIENT_ID,
+		ClientSecret: DEFAULT_OIDC_CLIENT_SECRET,
+		RedirectURL:  "http://127.0.0.1" + DEFAULT_OIDC_LISTEN_ADDRESS,
+		Scopes:       strings.Split(DEFAULT_OIDC_SCOPES, " "),
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  authURL,
 			TokenURL: tokenURL,
 		},
 	}
 
-	// ==== START LOCAL SERVER TO CATCH REDIRECT ====
-	codeCh := make(chan string)
-	u, _ := url.Parse(redirectURL)
-	if !strings.Contains(u.Host, ":") {
-		return "", fmt.Errorf("Invalid redirect URL: " + redirectURL)
+	// ==== OS logic ====
+	code := ""
+	var serverDone chan struct{}
+	if runtime.GOOS == "darwin" {
+		// On macOS: open browser, run HTTP server, get code automatically
+		serverDone = make(chan struct{})
+		go func() {
+			code = waitForCodeServer(DEFAULT_OIDC_LISTEN_ADDRESS, responseMode)
+			close(serverDone)
+		}()
+		authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
+		authCodeURL += "&response_mode=" + responseMode
+		fmt.Printf("Your browser should open. If not, open this URL:\n%s\n", authCodeURL)
+		_ = exec.Command("open", authCodeURL).Start()
+		<-serverDone
+	} else {
+		// On Windows/Linux: print URL, user logs in, then copy-pastes code
+		conf.RedirectURL = "urn:ietf:wg:oauth:2.0:oob"
+		authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
+		authCodeURL += "&response_mode=" + responseMode
+		fmt.Printf("Open the following URL in your browser, log in, then paste the resulting code here:\n%s\n", authCodeURL)
+		if responseMode == "form_post" {
+			fmt.Println("\nAfter login, you will see a blank or success page. Copy the 'code' value from the form POST (using browser dev tools or see the redirected form), and paste it below.")
+		}
+		fmt.Print("Enter the authorization code: ")
+		scanner := bufio.NewScanner(os.Stdin)
+		if scanner.Scan() {
+			code = strings.TrimSpace(scanner.Text())
+		}
 	}
-	parts := strings.Split(u.Host, ":")
-	srv := &http.Server{Addr: ":" + parts[len(parts)-1]}
-
-	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		var code string
-		if r.Method == "POST" {
-			// response_mode=form_post: parse form
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "Failed to parse form", http.StatusBadRequest)
-				return
-			}
-			code = r.FormValue("code")
-		} else {
-			// response_mode=query: parse URL
-			code = r.URL.Query().Get("code")
-		}
-		if code == "" {
-			http.Error(w, "Code not found", http.StatusBadRequest)
-			return
-		}
-		fmt.Fprintf(w, "Login successful! You can close this tab.")
-		codeCh <- code
-	})
-
-	go func() {
-		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-			log.Printf("ListenAndServe: %v", err)
-		}
-	}()
-	defer srv.Close()
-
-	// ==== OPEN BROWSER FOR USER AUTH ====
-	authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
-	// Append response_mode param manually, since x/oauth2 does not set it
-	authCodeURL += "&response_mode=" + responseMode
-
-	fmt.Printf("Open this URL in your browser if it does not open automatically:\n%s\n", authCodeURL)
-	openBrowser(authCodeURL)
-
-	// ==== WAIT FOR AUTH CODE ====
-	code := <-codeCh
 
 	// ==== EXCHANGE CODE FOR TOKEN ====
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -180,6 +157,7 @@ func GetAuthAccessToken() (string, error) {
 	if err != nil {
 		log.Fatalf("Token exchange failed: %v", err)
 	}
+
 	accessToken = token.AccessToken
 	fmt.Printf("Access token: %s\n", accessToken)
 
@@ -192,23 +170,36 @@ func GetAuthAccessToken() (string, error) {
 	return accessToken, nil
 }
 
-// openBrowser tries to open the URL in the default browser on any OS
-func openBrowser(url string) {
-	var cmd string
-	var args []string
+// waitForCodeServer runs a local HTTP server to capture the OAuth2 code via GET or POST.
+// Returns the code string.
+func waitForCodeServer(listenAddress, responseMode string) string {
+	codeCh := make(chan string)
+	server := &http.Server{Addr: listenAddress}
 
-	switch runtime.GOOS {
-	case "windows":
-		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler", url}
-	case "darwin":
-		cmd = "open"
-		args = []string{url}
-	default: // "linux", "freebsd", "openbsd", etc.
-		cmd = "xdg-open"
-		args = []string{url}
-	}
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		var code string
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "Failed to parse form", http.StatusBadRequest)
+				return
+			}
+			code = r.FormValue("code")
+		} else {
+			code = r.URL.Query().Get("code")
+		}
+		if code == "" {
+			http.Error(w, "No code in request", http.StatusBadRequest)
+			return
+		}
+		fmt.Fprintf(w, "Login successful! You can close this tab.")
+		codeCh <- code
+	})
 
-	// Run the command in the background, ignore errors
-	_ = exec.Command(cmd, args...).Start()
+	go func() {
+		_ = server.ListenAndServe()
+	}()
+	defer server.Close()
+
+	code := <-codeCh
+	return code
 }
