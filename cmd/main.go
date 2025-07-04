@@ -56,8 +56,7 @@ func main() {
 
 	switch {
 	case strings.HasPrefix(*csrDestination, "https://") || strings.HasPrefix(*csrDestination, "http://"):
-		at := oidc.NewAccessToken(*debug)
-		accesstoken, err := at.GetAuthAccessToken()
+		accesstoken, err := oidc.GetAuthAccessToken()
 		if err != nil {
 			log.Fatalf("Failed to get access token: %v\n", err)
 			return

@@ -1,29 +1,33 @@
 package oidc
 
 import (
-	"bytes"
+	"context"
+	"flag"
 	"fmt"
-	"io"
-	"io/fs"
 	"io/ioutil"
+	"log"
+	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/smallstep/cli/command"
-	_ "github.com/smallstep/cli/command/oauth"
-	"github.com/smallstep/cli/config"
-	"github.com/urfave/cli"
+	"golang.org/x/oauth2"
 )
 
 var (
-	DEFAULT_OIDC_CLIENT_ID         = "athenz-user-cert"
-	DEFAULT_OIDC_CLIENT_SECRET     = "athenz-user-cert"
-	DEFAULT_OIDC_ISSUER            = "http://localhost:5556/dex"
-	DEFAULT_OIDC_SCOPES            = "openid email profile"
-	DEFAULT_OIDC_LISTEN_ADDRESS    = ":8080"
-	DEFAULT_OIDC_ACCESS_TOKEN_PATH = ".athenz/.accesstoken"
+	DEFAULT_OIDC_CLIENT_ID             = "athenz-user-cert"
+	DEFAULT_OIDC_CLIENT_SECRET         = "athenz-user-cert"
+	DEFAULT_OIDC_ISSUER                = "http://localhost:5556/dex"
+	DEFAULT_OIDC_SCOPES                = "openid email profile"
+	DEFAULT_OIDC_LISTEN_ADDRESS        = ":8080"
+	DEFAULT_OIDC_ACCESS_TOKEN_PATH     = ".athenz/.accesstoken"
+	DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY = "30" // in minutes
+	debug                              = true
 )
 
 type FileUtil interface {
@@ -32,49 +36,29 @@ type FileUtil interface {
 	getCachedAccessToken() string
 }
 
-type FileIo struct {
-	FileUtil
-	ioutilReadFile func(string) ([]byte, error)
-	osGetenv       func(string) string
-	osStat         func(string) (fs.FileInfo, error)
-	osIsNotExist   func(error) bool
-	osMkdirAll     func(string, os.FileMode) error
-	debug          bool
-}
-
 func getAccessTokenCachePath() string {
 	h, _ := os.UserHomeDir()
 	return h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
 }
 
-func (fio *FileIo) createCacheDir(dirname string) bool {
-	if fio.debug {
-		fmt.Printf("Checking if directory %s exists...\n", dirname)
-	}
-	if _, err := fio.osStat(dirname); fio.osIsNotExist(err) {
-		if fio.debug {
-			fmt.Printf("Failed to read the cache directory %s. Creating one.\n", dirname)
-		}
-		err := fio.osMkdirAll(dirname, 0755)
+func getCachedAccessToken() string {
+	h, _ := os.UserHomeDir()
+	accessTokenFile := h + "/.athenz/.accesstoken"
+	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
+	if isCacheFileFresh(accessTokenFile, float64(validity)) {
+		data, err := ioutil.ReadFile(accessTokenFile)
 		if err != nil {
-			fmt.Printf("Failed to create directory: %v", err)
-			return false
+			fmt.Printf("Could not read the file, error: %v\n", err)
 		}
-	} else if err != nil {
-		fmt.Printf("Failed to check directory: %v", err)
-		return false
-	} else {
-		if fio.debug {
-			fmt.Printf("The cache directory %s exists.\n", dirname)
-		}
+		return strings.TrimSpace(string(data))
 	}
-	return true
+	return ""
 }
 
-func (fio *FileIo) isCacheFileFresh(filename string, maxAge float64) bool {
-	info, err := fio.osStat(filename)
+func isCacheFileFresh(filename string, maxAge float64) bool {
+	info, err := os.Stat(filename)
 	if err != nil {
-		if fio.debug {
+		if debug {
 			fmt.Printf("Could not read the cache file, error: %v\n", err)
 		}
 		return false
@@ -85,111 +69,146 @@ func (fio *FileIo) isCacheFileFresh(filename string, maxAge float64) bool {
 	return !expired
 }
 
-func (fio *FileIo) getCachedAccessToken() string {
-	h, _ := os.UserHomeDir()
-	accessTokenFile := h + "/.athenz/.accesstoken"
-	if fio.isCacheFileFresh(accessTokenFile, 30) {
-		data, err := fio.ioutilReadFile(accessTokenFile)
-		if err != nil {
-			fmt.Printf("Could not read the file, error: %v\n", err)
+func createCacheDir(dirname string) bool {
+	if debug {
+		fmt.Printf("Checking if directory %s exists...\n", dirname)
+	}
+	if _, err := os.Stat(dirname); os.IsNotExist(err) {
+		if debug {
+			fmt.Printf("Failed to read the cache directory %s. Creating one.\n", dirname)
 		}
-		return strings.TrimSpace(string(data))
+		err := os.MkdirAll(dirname, 0755)
+		if err != nil {
+			fmt.Printf("Failed to create directory: %v", err)
+			return false
+		}
+	} else if err != nil {
+		fmt.Printf("Failed to check directory: %v", err)
+		return false
+	} else {
+		if debug {
+			fmt.Printf("The cache directory %s exists.\n", dirname)
+		}
 	}
-	return ""
+	return true
 }
 
-type AccessToken struct {
-	fu              FileUtil
-	ioutilWriteFile func(filename string, data []byte, perm fs.FileMode) error
-	app             *cli.App
-	Run             func(args []string) error
-	debug           bool
-}
-
-func NewAccessToken(debug bool) *AccessToken {
-	app := cli.NewApp()
-	at := &AccessToken{
-		fu: &FileIo{
-			osGetenv:       os.Getenv,
-			osStat:         os.Stat,
-			osIsNotExist:   os.IsNotExist,
-			osMkdirAll:     os.MkdirAll,
-			ioutilReadFile: ioutil.ReadFile,
-			debug:          debug,
-		},
-		app:             app,
-		Run:             app.Run,
-		ioutilWriteFile: ioutil.WriteFile,
-		debug:           debug,
-	}
-	return at
-}
-
-func (at *AccessToken) GetAuthAccessToken() (string, error) {
-
-	accessToken := at.fu.getCachedAccessToken()
+func GetAuthAccessToken() (string, error) {
+	accessToken := getCachedAccessToken()
 	if accessToken != "" {
 		return accessToken, nil
 	}
 
-	args := []string{
-		"step",
-		"oauth",
-		"--bare",
-		"--scope=" + DEFAULT_OIDC_SCOPES,
-		"--provider=" + DEFAULT_OIDC_ISSUER,
-		"--client-id=" + DEFAULT_OIDC_CLIENT_ID,
-		"--client-secret=" + DEFAULT_OIDC_CLIENT_SECRET,
-		"--listen=" + DEFAULT_OIDC_LISTEN_ADDRESS,
-		//"--console",
+	// ==== FLAGS ====
+	var responseMode string
+	flag.StringVar(&responseMode, "response-mode", "query", "OAuth2 response_mode (query or form_post)")
+	flag.Parse()
+
+	// ==== CONFIG ====
+	issuer := "http://127.0.0.1:5556/dex" // change as needed
+	clientID := "athenz-user-cert"
+	clientSecret := "athenz-user-cert"
+	redirectURL := "http://localhost:8080/callback"
+	scopes := []string{"openid", "email", "profile"}
+
+	authURL := issuer + "/auth"
+	tokenURL := issuer + "/token"
+
+	conf := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  redirectURL,
+		Scopes:       scopes,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  authURL,
+			TokenURL: tokenURL,
+		},
 	}
 
-	fmt.Println("args: " + strings.Join(args, " "))
+	// ==== START LOCAL SERVER TO CATCH REDIRECT ====
+	codeCh := make(chan string)
+	u, _ := url.Parse(redirectURL)
+	if !strings.Contains(u.Host, ":") {
+		return "", fmt.Errorf("Invalid redirect URL: " + redirectURL)
+	}
+	parts := strings.Split(u.Host, ":")
+	srv := &http.Server{Addr: ":" + parts[len(parts)-1]}
 
-	// https://github.com/smallstep/cli/blob/6a18ddaf61684ca14369ed962aadeccfc6e59665/internal/cmd/root.go
-	// step oauth --authorization-endpoint=https://oauth2.athenz.svc.cluster.local:5556/dex/auth --token-endpoint=https://oauth2.athenz.svc.cluster.local:5556/dex/token --client-id=athenz-user-cert --client-secret=athenz-user-cert --scope="openid profile email" --listen-url http://localhost:8080/callback --listen :8080
-	at.app.Name = "step"
-	at.app.HelpName = "step"
-	at.app.Usage = "plumbing for distributed systems"
-	at.app.Version = config.Version()
-	at.app.Commands = command.Retrieve()
-	at.app.Flags = append(at.app.Flags, cli.HelpFlag)
-	at.app.EnableBashCompletion = true
-	at.app.Copyright = "https://github.com/ctyano"
-
-	at.app.Flags = append(at.app.Flags, cli.StringFlag{
-		Name:  "config",
-		Usage: "path to the config file to use for CLI flags",
+	http.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
+		var code string
+		if r.Method == "POST" {
+			// response_mode=form_post: parse form
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "Failed to parse form", http.StatusBadRequest)
+				return
+			}
+			code = r.FormValue("code")
+		} else {
+			// response_mode=query: parse URL
+			code = r.URL.Query().Get("code")
+		}
+		if code == "" {
+			http.Error(w, "Code not found", http.StatusBadRequest)
+			return
+		}
+		fmt.Fprintf(w, "Login successful! You can close this tab.")
+		codeCh <- code
 	})
 
-	at.app.Writer = os.Stdout
-	at.app.ErrWriter = os.Stderr
+	go func() {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Printf("ListenAndServe: %v", err)
+		}
+	}()
+	defer srv.Close()
 
-	r, w, err := os.Pipe()
+	// ==== OPEN BROWSER FOR USER AUTH ====
+	authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
+	// Append response_mode param manually, since x/oauth2 does not set it
+	authCodeURL += "&response_mode=" + responseMode
+
+	fmt.Printf("Open this URL in your browser if it does not open automatically:\n%s\n", authCodeURL)
+	openBrowser(authCodeURL)
+
+	// ==== WAIT FOR AUTH CODE ====
+	code := <-codeCh
+
+	// ==== EXCHANGE CODE FOR TOKEN ====
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	token, err := conf.Exchange(ctx, code)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Token exchange failed: %v", err)
 	}
-	oldSto := os.Stdout
-	os.Stdout = w
+	accessToken = token.AccessToken
+	fmt.Printf("Access token: %s\n", accessToken)
 
-	if err := at.Run(args); err != nil {
-		fmt.Println(err)
-		return "", err
-	}
-
-	os.Stdout = oldSto
-	w.Close()
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-
-	accesstoken := strings.TrimRight(buf.String(), "\n")
-
-	if accesstoken != "" {
+	if accessToken != "" {
 		h, _ := os.UserHomeDir()
-		accessTokenFile := h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
-		at.fu.createCacheDir(filepath.Dir(accessTokenFile))
-		data := []byte(accesstoken)
-		at.ioutilWriteFile(accessTokenFile, data, 0600)
+		accessTokenFilePath := h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
+		createCacheDir(filepath.Dir(accessTokenFilePath))
+		ioutil.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
 	}
-	return accesstoken, nil
+	return accessToken, nil
+}
+
+// openBrowser tries to open the URL in the default browser on any OS
+func openBrowser(url string) {
+	var cmd string
+	var args []string
+
+	switch runtime.GOOS {
+	case "windows":
+		cmd = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", url}
+	case "darwin":
+		cmd = "open"
+		args = []string{url}
+	default: // "linux", "freebsd", "openbsd", etc.
+		cmd = "xdg-open"
+		args = []string{url}
+	}
+
+	// Run the command in the background, ignore errors
+	_ = exec.Command(cmd, args...).Start()
 }
