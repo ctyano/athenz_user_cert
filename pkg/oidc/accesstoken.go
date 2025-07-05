@@ -165,7 +165,11 @@ func GetAuthAccessToken() (string, error) {
 		h, _ := os.UserHomeDir()
 		accessTokenFilePath := h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
 		createCacheDir(filepath.Dir(accessTokenFilePath))
-		ioutil.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
+		err := ioutil.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
+		if err != nil {
+			log.Fatalf("Failed to store access token to: %s, error %s", accessTokenFilePath, err)
+			return "", err
+		}
 	}
 	return accessToken, nil
 }

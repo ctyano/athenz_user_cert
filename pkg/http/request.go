@@ -18,7 +18,7 @@ var (
 	DEFAULT_X509_ALGORITHM  = "RSA"
 )
 
-func SendCSR(url string, csr string, headers *map[string][]string) error {
+func SendCSR(url string, csr string, headers *map[string][]string) (error, *string) {
 	type KeyMeta struct {
 		Identifier string `json:"identifier"`
 	}
@@ -40,7 +40,7 @@ func SendCSR(url string, csr string, headers *map[string][]string) error {
 
 	jsonData, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("Failed to marshal JSON: %v", err)
+		return fmt.Errorf("Failed to marshal JSON: %v", err), nil
 	}
 
 	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_X509_TIMEOUT))
@@ -50,7 +50,7 @@ func SendCSR(url string, csr string, headers *map[string][]string) error {
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("Failed to create request: %v", err)
+		return fmt.Errorf("Failed to create request: %v", err), nil
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -64,21 +64,21 @@ func SendCSR(url string, csr string, headers *map[string][]string) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Failed to send request: %v", err)
+		return fmt.Errorf("Failed to send request: %v", err), nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body)
+		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body), nil
 	}
 
 	var responseBody map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
-		return fmt.Errorf("Failed to parse JSON response: %s", err)
+		return fmt.Errorf("Failed to parse JSON response: %s", err), nil
 	}
+	cert := fmt.Sprintf("%s", responseBody["cert"])
+	fmt.Printf("%s\n", cert)
 
-	fmt.Printf("%+v\n", responseBody["cert"])
-
-	return nil
+	return nil, &cert
 }

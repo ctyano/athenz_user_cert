@@ -4,6 +4,7 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"strings"
@@ -42,7 +43,7 @@ func main() {
 	}
 
 	// Parse argument flags
-	csrDestination := flag.String("csr", "https://certsigner-envoy.athenz/v3/sig/x509-cert/keys/x509-key", "Target destination for the certificate sign request")
+	csrDestination := flag.String("csr", "http://localhost:10000/v3/sig/x509-cert/keys/x509-key", "Target destination for the certificate sign request")
 	commonName := flag.String("cn", "", "Subject Common Name for the certificate")
 	dnsarg := flag.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
 	emailarg := flag.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
@@ -64,11 +65,18 @@ func main() {
 		if *debug {
 			log.Printf("Access Token: %v\n", accesstoken)
 		}
-		err = http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)), &map[string][]string{
+		err, cert := http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)), &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
 			log.Fatalf("Failed to send csr: %v\n", err)
+			return
+		}
+		h, _ := os.UserHomeDir()
+		certDestination := h + "/.athenz/user.cert.pem"
+		err = ioutil.WriteFile(certDestination, []byte(*cert), 0600)
+		if err != nil {
+			log.Fatalf("Failed to save x.509 certificate to %s: %v", certDestination, err)
 			return
 		}
 	case *csrDestination == "-":
