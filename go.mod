@@ -1,5 +1,6 @@
 module github.com/ctyano/athenz-user-cert
 
-go 1.24.4
-
-require golang.org/x/oauth2 v0.30.0
+require (
+	github.com/coreos/go-oidc v2.3.0+incompatible
+	golang.org/x/oauth2 v0.30.0
+)

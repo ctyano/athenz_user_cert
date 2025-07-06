@@ -50,6 +50,7 @@ func main() {
 	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
 	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
 	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
+	responseMode := flag.String("response-mode", "query", "OAuth2 response_mode (query or form_post)")
 
 	flag.Parse()
 
@@ -57,7 +58,7 @@ func main() {
 
 	switch {
 	case strings.HasPrefix(*csrDestination, "https://") || strings.HasPrefix(*csrDestination, "http://"):
-		accesstoken, err := oidc.GetAuthAccessToken()
+		accesstoken, err := oidc.GetAuthAccessToken(responseMode)
 		if err != nil {
 			log.Fatalf("Failed to get access token: %v\n", err)
 			return

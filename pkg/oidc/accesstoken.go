@@ -3,7 +3,6 @@ package oidc
 import (
 	"bufio"
 	"context"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -16,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	oidc "github.com/coreos/go-oidc"
 	"golang.org/x/oauth2"
 )
 
@@ -42,8 +42,7 @@ func getAccessTokenCachePath() string {
 }
 
 func getCachedAccessToken() string {
-	h, _ := os.UserHomeDir()
-	accessTokenFile := h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
+	accessTokenFile := getAccessTokenCachePath()
 	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
 	if isCacheFileFresh(accessTokenFile, float64(validity)) {
 		data, err := ioutil.ReadFile(accessTokenFile)
@@ -93,29 +92,40 @@ func createCacheDir(dirname string) bool {
 	return true
 }
 
-func GetAuthAccessToken() (string, error) {
+func GetAuthAccessToken(responseMode *string) (string, error) {
 	accessToken := getCachedAccessToken()
 	if accessToken != "" {
 		return accessToken, nil
 	}
 
-	// ==== FLAGS ====
-	var responseMode string
-	flag.StringVar(&responseMode, "response-mode", "query", "OAuth2 response_mode (query or form_post)")
-	flag.Parse()
+	// ==== OIDC Discovery ====
+	ctx := context.Background()
+	provider, err := oidc.NewProvider(ctx, DEFAULT_OIDC_ISSUER)
+	if err != nil {
+		log.Fatalf("Failed to discover OIDC config from %s: %v", DEFAULT_OIDC_ISSUER, err)
+	}
+	var endpoints struct {
+		AuthURL  string `json:"authorization_endpoint"`
+		TokenURL string `json:"token_endpoint"`
+	}
+	if err := provider.Claims(&endpoints); err != nil {
+		log.Fatalf("Failed to parse OIDC provider endpoints: %v", err)
+	}
+	//fmt.Printf("Discovered authorization endpoint: %s\n", endpoints.AuthURL)
+	//fmt.Printf("Discovered token endpoint: %s\n", endpoints.TokenURL)
+
+	//authURL := DEFAULT_OIDC_ISSUER + "/auth"
+	//tokenURL := DEFAULT_OIDC_ISSUER + "/token"
 
 	// ==== CONFIG ====
-	authURL := DEFAULT_OIDC_ISSUER + "/auth"
-	tokenURL := DEFAULT_OIDC_ISSUER + "/token"
-
 	conf := &oauth2.Config{
 		ClientID:     DEFAULT_OIDC_CLIENT_ID,
 		ClientSecret: DEFAULT_OIDC_CLIENT_SECRET,
 		RedirectURL:  "http://127.0.0.1" + DEFAULT_OIDC_LISTEN_ADDRESS,
 		Scopes:       strings.Split(DEFAULT_OIDC_SCOPES, " "),
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  authURL,
-			TokenURL: tokenURL,
+			AuthURL:  endpoints.AuthURL,
+			TokenURL: endpoints.TokenURL,
 		},
 	}
 
@@ -126,11 +136,11 @@ func GetAuthAccessToken() (string, error) {
 		// On macOS: open browser, run HTTP server, get code automatically
 		serverDone = make(chan struct{})
 		go func() {
-			code = waitForCodeServer(DEFAULT_OIDC_LISTEN_ADDRESS, responseMode)
+			code = waitForCodeServer(DEFAULT_OIDC_LISTEN_ADDRESS, *responseMode)
 			close(serverDone)
 		}()
 		authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
-		authCodeURL += "&response_mode=" + responseMode
+		authCodeURL += "&response_mode=" + *responseMode
 		fmt.Printf("Your browser should open. If not, open this URL:\n%s\n", authCodeURL)
 		_ = exec.Command("open", authCodeURL).Start()
 		<-serverDone
@@ -138,10 +148,11 @@ func GetAuthAccessToken() (string, error) {
 		// On Windows/Linux: print URL, user logs in, then copy-pastes code
 		conf.RedirectURL = "urn:ietf:wg:oauth:2.0:oob"
 		authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
-		authCodeURL += "&response_mode=" + responseMode
+		authCodeURL += "&response_mode=" + *responseMode
 		fmt.Printf("Open the following URL in your browser, log in, then paste the resulting code here:\n%s\n", authCodeURL)
-		if responseMode == "form_post" {
-			fmt.Println("\nAfter login, you will see a blank or success page. Copy the 'code' value from the form POST (using browser dev tools or see the redirected form), and paste it below.")
+		if *responseMode == "form_post" {
+			fmt.Printf("\nAfter login, you will see a blank or success page. ")
+			fmt.Printf("Copy the 'code' value from the form POST (using browser dev tools or see the redirected form), and paste it below.\n")
 		}
 		fmt.Print("Enter the authorization code: ")
 		scanner := bufio.NewScanner(os.Stdin)
@@ -162,8 +173,7 @@ func GetAuthAccessToken() (string, error) {
 	fmt.Printf("Access token: %s\n", accessToken)
 
 	if accessToken != "" {
-		h, _ := os.UserHomeDir()
-		accessTokenFilePath := h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
+		accessTokenFilePath := getAccessTokenCachePath()
 		createCacheDir(filepath.Dir(accessTokenFilePath))
 		err := ioutil.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
 		if err != nil {
