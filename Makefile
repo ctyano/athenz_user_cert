@@ -79,19 +79,19 @@ ifneq ($(LDFLAGS_ARGS),)
 LDFLAGS += -ldflags "$(LDFLAGS_ARGS)"
 endif
 
-.PHONY: build test clean
+.PHONY: go-build go-test go-clean
 
-build:
+go-build:
 	@echo "Building $(APP_NAME)..."
 	go mod tidy
 	CGO_ENABLED=1 go build $(LDFLAGS) -o $(GOPATH)/bin/$(APP_NAME) cmd/*.go
 
-test:
+go-test:
 	@echo "Testing..."
 	go test -v -failfast -timeout 1m -race -covermode=atomic -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
 
-clean:
+go-clean:
 	rm -rf $(shell pwd)/bin || true
 	chmod -R a+w pkg/ || true
 	rm -rf $(shell pwd)/pkg || true
@@ -141,14 +141,14 @@ endif
 
 .SILENT: version
 
-docker-build:
+build:
 	IMAGE_NAME=$(DOCKER_REGISTRY)$(APP_NAME)$(DOCKER_TAG); \
 	LATEST_IMAGE_NAME=$(DOCKER_REGISTRY)$(APP_NAME):latest; \
 	DOCKERFILE_PATH=./Dockerfile; \
 	test $(DOCKER_CACHE) && DOCKER_CACHE_OPTION="--cache-from $$IMAGE_NAME"; \
 	docker build $(BUILD_ARG) $$DOCKER_CACHE_OPTION -t $$IMAGE_NAME -t $$LATEST_IMAGE_NAME -f $$DOCKERFILE_PATH .
 
-docker-buildx:
+buildx:
 	IMAGE_NAME=$(DOCKER_REGISTRY)$(APP_NAME)$(DOCKER_TAG); \
 	LATEST_IMAGE_NAME=$(DOCKER_REGISTRY)$(APP_NAME):latest; \
 	DOCKERFILE_PATH=./Dockerfile; \
@@ -161,18 +161,6 @@ install-golang:
 	which go \
 || (curl -sf https://webi.sh/golang | sh \
 && ~/.local/bin/pathman add ~/.local/bin)
-
-patch:
-	$(PATCH) && rsync -av --exclude=".gitkeep" patchfiles/* $(SUBMODULE_NAME)
-
-diff:
-	@diff $(SUBMODULE_NAME) patchfiles
-
-checkout:
-	@cd $(SUBMODULE_NAME)/ && git checkout .
-
-checkout-version:
-	@cd $(SUBMODULE_NAME)/ && git fetch --refetch --tags origin && git checkout v$(VERSION)
 
 version:
 	@echo "Version: $(VERSION)"

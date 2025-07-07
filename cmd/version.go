@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctyano/athenz-user-cert/pkg/http"
-	"github.com/ctyano/athenz-user-cert/pkg/oidc"
+	"github.com/ctyano/athenz_user_cert/pkg/http"
+	"github.com/ctyano/athenz_user_cert/pkg/oidc"
 )
 
 var (

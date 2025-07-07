@@ -9,13 +9,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ctyano/athenz-user-cert/pkg/certificate"
-	"github.com/ctyano/athenz-user-cert/pkg/http"
-	"github.com/ctyano/athenz-user-cert/pkg/oidc"
+	"github.com/ctyano/athenz_user_cert/pkg/certificate"
+	"github.com/ctyano/athenz_user_cert/pkg/http"
+	"github.com/ctyano/athenz_user_cert/pkg/oidc"
 )
 
 var (
-	DEFAULT_APP_NAME = "athenz-user-cert"
+	DEFAULT_APP_NAME = "athenz_user_cert"
 )
 
 func main() {

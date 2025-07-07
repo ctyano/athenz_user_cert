@@ -6,7 +6,7 @@ RUN set -eux \
 
 RUN cp /usr/share/zoneinfo/Japan /etc/localtime
 
-ARG APP_NAME=athenz-user-cert
+ARG APP_NAME=athenz_user_cert
 ENV APP_NAME=${APP_NAME}
 ARG VERSION=test
 ENV VERSION=${VERSION}
