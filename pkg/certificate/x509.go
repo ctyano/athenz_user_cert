@@ -8,11 +8,18 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math/big"
 	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
+)
+
+var (
+	DEFAULT_X509_USERCERT_PATH = "/.athenz/user.cert.pem"
+	DEFAULT_ATHENZ_USER_PREFIX = "user."
 )
 
 type X509Options struct {
@@ -179,20 +186,86 @@ func VerifyCertificate(cert, cacert *x509.Certificate) (err error) {
 	return
 }
 
-func WritePem(certPem *pem.Block, certPath string) (err error) {
-	certOut, err := os.Create(certPath)
+// GenerateCSR generates a Certificate Siginig Request with specified algorithm, cn, dnsarg, emailarg, iparg, and uriarg.
+func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *crypto.PrivateKey, *pem.Block) {
+	privateKey, err := GenerateKey(algorithm)
 	if err != nil {
-		err = fmt.Errorf("Failed to open %s for writing: %v", certPath, err)
+		log.Fatalf("Failed to generate a key: %s", err)
+		return err, nil, nil
+	}
+
+	var sandns, sanemail []string
+	var sanip []net.IP
+	var sanuri []*url.URL
+
+	if *dnsarg != "" {
+		sandns = strings.Split(*dnsarg, ",")
+	}
+	if *emailarg != "" {
+		sanemail = strings.Split(*emailarg, ",")
+	}
+	if *iparg != "" {
+		ips := strings.Split(*iparg, ",")
+		for _, v := range ips {
+			ip := net.ParseIP(strings.TrimSpace(v))
+			if ip != nil {
+				sanip = append(sanip, ip)
+			}
+		}
+	}
+	if *uriarg != "" {
+		uris := strings.Split(*uriarg, ",")
+		for _, v := range uris {
+			uri, err := url.Parse(v)
+			if err == nil && uri.Scheme != "" {
+				log.Fatalf("Invalid uri [%s]: %s", v, err)
+				return err, &privateKey, nil
+			}
+			sanuri = append(sanuri, uri)
+		}
+	}
+
+	csrTemplate := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName: *cn,
+		},
+		DNSNames:       sandns,
+		EmailAddresses: sanemail,
+		IPAddresses:    sanip,
+		URIs:           sanuri,
+	}
+
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, privateKey)
+	if err != nil {
+		log.Fatalf("Failed to create csr: %w", err)
+		return err, &privateKey, nil
+	}
+
+	return nil, &privateKey, &pem.Block{
+		Type:  "CERTIFICATE REQUEST",
+		Bytes: csrDER,
+	}
+}
+
+func UserCertPath() string {
+	h, _ := os.UserHomeDir()
+	return h + DEFAULT_X509_USERCERT_PATH
+}
+
+func WritePEM(pemBlock *pem.Block, pemFilePath string) (err error) {
+	pemOut, err := os.Create(pemFilePath)
+	if err != nil {
+		err = fmt.Errorf("Failed to open %s for writing: %v", pemFilePath, err)
 		return
 	}
-	err = pem.Encode(certOut, certPem)
+	err = pem.Encode(pemOut, pemBlock)
 	if err != nil {
 		err = fmt.Errorf("Failed to write data to cert.pem: %v", err)
 		return
 	}
-	err = certOut.Close()
+	err = pemOut.Close()
 	if err != nil {
-		err = fmt.Errorf("Error closing %s: %v", certPath, err)
+		err = fmt.Errorf("Error closing %s: %v", pemFilePath, err)
 		return
 	}
 

@@ -10,12 +10,13 @@ import (
 	"strings"
 
 	"github.com/ctyano/athenz_user_cert/pkg/certificate"
-	"github.com/ctyano/athenz_user_cert/pkg/http"
 	"github.com/ctyano/athenz_user_cert/pkg/oidc"
+	"github.com/ctyano/athenz_user_cert/pkg/signer"
 )
 
 var (
 	DEFAULT_APP_NAME = "athenz_user_cert"
+	SIGNER_NAME      = "crypki"
 )
 
 func main() {
@@ -43,50 +44,73 @@ func main() {
 	}
 
 	// Parse argument flags
-	csrDestination := flag.String("csr", "http://localhost:10000/v3/sig/x509-cert/keys/x509-key", "Target destination for the certificate sign request")
-	commonName := flag.String("cn", "", "Subject Common Name for the certificate")
+	signerURL := flag.String("url", "http://localhost:10000/v3/sig/x509-cert/keys/x509-key", "Target destination URL for the certificate sign request")
+
+	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: <athenz user prefix>.<oauth user name>)")
+
 	dnsarg := flag.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
 	emailarg := flag.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
 	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
 	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
+
+	signerName := flag.String("signer", SIGNER_NAME, "Name for the certificate signer product(crypki or cfssl)")
 	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
+
 	responseMode := flag.String("response-mode", "query", "OAuth2 response_mode (query or form_post)")
 
 	flag.Parse()
 
-	err, csrPEM := certificate.GenerateCSR(http.DEFAULT_X509_ALGORITHM, commonName, dnsarg, emailarg, iparg, uriarg)
+	accesstoken, err := oidc.GetAuthAccessToken(responseMode)
+	if err != nil {
+		log.Fatalf("Failed to get access token: %v\n", err)
+		return
+	}
+	if *debug {
+		log.Printf("Access Token: %v\n", accesstoken)
+	}
 
-	switch {
-	case strings.HasPrefix(*csrDestination, "https://") || strings.HasPrefix(*csrDestination, "http://"):
-		accesstoken, err := oidc.GetAuthAccessToken(responseMode)
-		if err != nil {
-			log.Fatalf("Failed to get access token: %v\n", err)
-			return
-		}
-		if *debug {
-			log.Printf("Access Token: %v\n", accesstoken)
-		}
-		err, cert := http.SendCSR(*csrDestination, string(pem.EncodeToMemory(csrPEM)), &map[string][]string{
+	err, key, csrPEM := certificate.GenerateCSR(*signerName, commonName, dnsarg, emailarg, iparg, uriarg)
+	if err != nil {
+		log.Fatalf("Failed to generate csr: %v\n", err)
+		return
+	}
+	csr := string(pem.EncodeToMemory(csrPEM))
+	if *debug {
+		log.Printf("Generated csr: %s\n", csr)
+	}
+
+	var cert *string
+	switch *signerName {
+	case "crypki":
+		err, cert := signer.SendCrypkiCSR(*signerURL, csr, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
 			log.Fatalf("Failed to send csr: %v\n", err)
 			return
 		}
-		h, _ := os.UserHomeDir()
-		certDestination := h + "/.athenz/user.cert.pem"
-		err = ioutil.WriteFile(certDestination, []byte(*cert), 0600)
-		if err != nil {
-			log.Fatalf("Failed to save x.509 certificate to %s: %v", certDestination, err)
-			return
+		if *debug {
+			log.Printf("Signed cert: %s\n", cert)
 		}
-	case *csrDestination == "-":
-		fmt.Printf("%s", pem.EncodeToMemory(csrPEM))
-	default:
-		err = certificate.WritePem(csrPEM, *csrDestination)
-		if err != nil {
-			log.Fatalf("Failed to save x.509 certificate signing request to %s: %s", *csrDestination, err)
-			return
-		}
+	case "cfssl":
+	}
+
+	keyPEM, err := certificate.PrivateKeyToPEM(*key)
+	if err != nil {
+		log.Fatalf("Failed to convert x.509 certificate key to PEM string: %v", err)
+		return
+	}
+	keyDestination := certificate.UserKeyPath()
+	err = certificate.WritePEM(keyPEM, keyDestination)
+	if err != nil {
+		log.Fatalf("Failed to save x.509 certificate key to %s: %v", keyDestination, err)
+		return
+	}
+
+	certDestination := certificate.UserCertPath()
+	err = ioutil.WriteFile(certDestination, []byte(*cert), 0600)
+	if err != nil {
+		log.Fatalf("Failed to save x.509 certificate to %s: %v", certDestination, err)
+		return
 	}
 }

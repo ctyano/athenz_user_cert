@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctyano/athenz_user_cert/pkg/http"
 	"github.com/ctyano/athenz_user_cert/pkg/oidc"
+	"github.com/ctyano/athenz_user_cert/pkg/signer"
 )
 
 var (
@@ -36,8 +36,7 @@ func ExecuteVersionCommand(arg []string, versionFlagSet *flag.FlagSet) {
 	fmt.Printf("CLI Open ID Connect Client Listening Address: %s\n", oidc.DEFAULT_OIDC_LISTEN_ADDRESS)
 	fmt.Printf("CLI Open ID Connect Access Token Stored Path: $HOME/%s\n", oidc.DEFAULT_OIDC_ACCESS_TOKEN_PATH)
 
-	fmt.Printf("CLI X.509 Certificate Validity: %s seconds\n", http.DEFAULT_X509_VALIDITY)
-	fmt.Printf("CLI X.509 Certificate Identifier: %s\n", http.DEFAULT_X509_IDENTIFIER)
-	fmt.Printf("CLI X.509 Certificate Request Timeout: %s seconds\n", http.DEFAULT_X509_TIMEOUT)
-	fmt.Printf("CLI X.509 Certificate Key Algorithm: %s\n", http.DEFAULT_X509_ALGORITHM)
+	fmt.Printf("CLI X.509 Certificate Validity: %s seconds\n", signer.DEFAULT_CRYPKI_VALIDITY)
+	fmt.Printf("CLI X.509 Certificate Identifier: %s\n", signer.DEFAULT_CRYPKI_IDENTIFIER)
+	fmt.Printf("CLI X.509 Certificate Request Timeout: %s seconds\n", signer.DEFAULT_CRYPKI_TIMEOUT)
 }

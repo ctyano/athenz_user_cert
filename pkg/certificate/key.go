@@ -7,13 +7,24 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/pem"
 	"fmt"
+	"os"
+)
+
+var (
+	DEFAULT_X509_USERKEY_PATH = "/.athenz/user.key.pem"
+	DEFAULT_KEY_ALGORITHM     = "RSA"
 )
 
 // GenerateKey generates a private key for the specified algorithm.
 // Supported algorithms are "RSA", "ECDSA", and "Ed25519".
 func GenerateKey(algorithm string) (crypto.PrivateKey, error) {
+	if algorithm == "" {
+		algorithm = DEFAULT_KEY_ALGORITHM
+	}
 	switch algorithm {
 	case "RSA":
 		// Generate RSA key with 2048 bits
@@ -29,6 +40,18 @@ func GenerateKey(algorithm string) (crypto.PrivateKey, error) {
 		return nil, fmt.Errorf("unsupported algorithm:%s", algorithm)
 
 	}
+}
+
+// PrivateKeyToPEM converts a crypto.PrivateKey to a PEM-encoded string (PKCS#8).
+func PrivateKeyToPEM(priv crypto.PrivateKey) (*pem.Block, error) {
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal private key: %w", err)
+	}
+	return &pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: der,
+	}, nil
 }
 
 func PublicKeyFromPrivateKey(key crypto.PrivateKey) (crypto.PublicKey, error) {
@@ -77,4 +100,9 @@ func Decrypt(priv crypto.PrivateKey, ciphertext string) (err error, data []byte)
 	}
 
 	return
+}
+
+func UserKeyPath() string {
+	h, _ := os.UserHomeDir()
+	return h + DEFAULT_X509_USERKEY_PATH
 }

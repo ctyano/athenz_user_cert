@@ -1,4 +1,4 @@
-package http
+package signer
 
 import (
 	"bytes"
@@ -12,30 +12,23 @@ import (
 )
 
 var (
-	DEFAULT_X509_VALIDITY   = "30 * 24 * 60 * 60" // 30 days in seconds
-	DEFAULT_X509_IDENTIFIER = "athenz"
-	DEFAULT_X509_TIMEOUT    = "10" // in seconds
-	DEFAULT_X509_ALGORITHM  = "RSA"
+	DEFAULT_CFSSL_TIMEOUT = "10" // in seconds
 )
 
-func SendCSR(url string, csr string, headers *map[string][]string) (error, *string) {
-	type KeyMeta struct {
-		Identifier string `json:"identifier"`
-	}
+// https://github.com/cloudflare/cfssl/blob/master/doc/api/endpoint_sign.txt
+func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, *string) {
 
 	type RequestBody struct {
-		CSR      string  `json:"csr"`
-		KeyMeta  KeyMeta `json:"key_meta"`
-		Validity int     `json:"validity"`
+		CSR            string `json:"certificate_request"`
+		Host           string `json:hosts`
+		SerialSequence string `json:"serial_sequence"`
+		Label          string `json:"label"`
+		Profile        string `json:"profile"`
+		Bundle         string `json:"bundle"`
 	}
 
-	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_X509_VALIDITY))
 	body := RequestBody{
 		CSR: csr,
-		KeyMeta: KeyMeta{
-			Identifier: DEFAULT_X509_IDENTIFIER,
-		},
-		Validity: validity,
 	}
 
 	jsonData, err := json.Marshal(body)
@@ -43,7 +36,7 @@ func SendCSR(url string, csr string, headers *map[string][]string) (error, *stri
 		return fmt.Errorf("Failed to marshal JSON: %v", err), nil
 	}
 
-	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_X509_TIMEOUT))
+	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_CFSSL_TIMEOUT))
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 	}
@@ -77,7 +70,7 @@ func SendCSR(url string, csr string, headers *map[string][]string) (error, *stri
 	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
 		return fmt.Errorf("Failed to parse JSON response: %s", err), nil
 	}
-	cert := fmt.Sprintf("%s", responseBody["cert"])
+	cert := fmt.Sprintf("%s", responseBody["certificate"])
 	fmt.Printf("%s\n", cert)
 
 	return nil, &cert
