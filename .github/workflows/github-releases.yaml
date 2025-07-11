@@ -175,7 +175,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' && github.event.inputs.target_version != '' && github.event.inputs.target_version != github.event.inputs.current_version }}
         run: |
           set -x
-          for platform in "darwin/amd64\ndarwin/arm64"; do
+          for platform in "darwin/amd64 darwin/arm64"; do
             GOOS=darwin
             GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g')
             for component in $(echo ${{ env.NFPM_TARGET_COMPONENTS }} | tr "," "\n"); do
