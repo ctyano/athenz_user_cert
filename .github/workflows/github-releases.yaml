@@ -104,7 +104,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' && github.event.inputs.target_version != '' && github.event.inputs.target_version != github.event.inputs.current_version }}
         run: |
           set -x
-          tag=$(basename ${{ env.CI_REF }})
+          tag=v${{ github.event.inputs.target_version }}
           for image in $(echo ${{ env.NFPM_SOURCE_IMAGES }} | tr "," "\n"); do
             for platform in $(echo ${{ env.DOCKER_TAEGET_PLATFORMS }} | tr "," "\n"); do
               # Download docker image to a tarball
@@ -152,7 +152,7 @@ jobs:
             GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g')
             for packager in $(echo ${{ env.NFPM_TARGET_PACKAGER }} | tr "," "\n"); do
               for component in $(echo ${{ env.NFPM_TARGET_COMPONENTS }} | tr "," "\n"); do
-                SEMVER=${{ env.CI_REF_NAME }} nfpm pkg -f nfpm/linux/$GOARCH/$component.yaml -p $packager -t .
+                SEMVER=${{ github.event.inputs.target_version }} nfpm pkg -f nfpm/linux/$GOARCH/$component.yaml -p $packager -t .
               done
             done
           done
@@ -167,7 +167,7 @@ jobs:
           for platform in $(echo ${{ env.DOCKER_TAEGET_PLATFORMS }} | tr "," "\n"); do
             GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g')
             for component in $(echo ${{ env.NFPM_TARGET_COMPONENTS }} | tr "," "\n"); do
-              tar -czf ${component}_${{ env.CI_REF_NAME }}_${GOARCH}.tar.gz ${component}_${GOARCH}/usr/bin/${component}
+              tar -czf ${component}_v${{ github.event.inputs.target_version }}_${GOARCH}.tar.gz ${component}_${GOARCH}/usr/bin/${component}
             done
           done
 
