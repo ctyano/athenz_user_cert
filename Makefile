@@ -84,12 +84,24 @@ ifneq ($(LDFLAGS_ARGS),)
 LDFLAGS += -ldflags "$(LDFLAGS_ARGS)"
 endif
 
+ifeq ($(GOOS),)
+GOOS := $(shell go env GOOS))
+endif
+ifeq ($(GOARCH),)
+GOARCH := $(shell go env GOARCH))
+endif
+
 .PHONY: go-build go-test go-clean
 
 go-build:
 	@echo "Building $(APP_NAME)..."
 	go mod tidy
 	CGO_ENABLED=1 go build $(LDFLAGS) -o $(GOPATH)/bin/$(APP_NAME) cmd/*.go
+
+go-cross-build:
+	@echo "Cross Building $(APP_NAME) for $(GOOS)/$(GOARCH)..."
+	go mod tidy
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go build $(LDFLAGS) -o $(GOPATH)/bin/$(GOOS)_$(GOARCH)/$(APP_NAME) cmd/*.go
 
 go-test:
 	@echo "Testing..."
