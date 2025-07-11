@@ -206,7 +206,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -x
-          tag=$(git tag --points-at HEAD)
+          if [[ ${{ github.event_name != 'pull_request' && github.event.inputs.target_version != '' && github.event.inputs.target_version != github.event.inputs.current_version }} \
+          && "${{ github.event.inputs.target_version }}" =~ .*([0-9]+.[0-9]+.[0-9]+).* ]]; then
+            tag="$(echo v${{ github.event.inputs.target_version }} | sed -e 's/.*\([0-9]+.[0-9]+.[0-9]+\).*/\1/g')"
+          else
+            tag=$(git tag --points-at HEAD)
+          fi
           release_id=$(curl \
             -XGET \
             -H "Accept: application/vnd.github+json" \
