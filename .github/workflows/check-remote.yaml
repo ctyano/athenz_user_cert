@@ -95,6 +95,7 @@ jobs:
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
           git push -f origin tag ${{ env.TAG_VERSION }}
 
+      # A GitHub Action to trigger workflows
       - name: Trigger Workflows
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -105,3 +106,4 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             https://api.github.com/repos/${{ github.repository }}/actions/workflows/trigger-workflows.yaml/dispatches \
             -d "{\"ref\":\"${{ env.TAG_VERSION }}\"}"
+
