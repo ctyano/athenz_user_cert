@@ -181,7 +181,7 @@ jobs:
             GOOS=darwin
             GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g')
             for component in $(echo ${{ env.NFPM_TARGET_COMPONENTS }} | tr "," "\n"); do
-              tar -czvf ${component}_${{ github.event.inputs.target_version }}_${GOOS}_${GOARCH}.tar.gz ${GOPATH}/bin/${GOOS}_${GOARCH}/${component}
+              tar -czvf ${component}_${{ github.event.inputs.target_version }}_${GOOS}_${GOARCH}.tar.gz -C ${GOPATH}/bin/${GOOS}_${GOARCH} .
               tar -tvf ${component}_${{ github.event.inputs.target_version }}_${GOOS}_${GOARCH}.tar.gz
             done
           done
