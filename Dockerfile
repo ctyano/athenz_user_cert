@@ -28,9 +28,8 @@ FROM alpine
 
 RUN apk add net-tools openssl
 
-ARG APP_NAME=${APP_NAME}
+ARG APP_NAME
 
 COPY --from=builder /usr/bin/${APP_NAME} /usr/bin/${APP_NAME}
 
-ENTRYPOINT /usr/bin/${APP_NAME}
-
+ENTRYPOINT ["/usr/bin/${APP_NAME}"]
