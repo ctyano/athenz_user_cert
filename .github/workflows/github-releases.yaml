@@ -27,6 +27,7 @@ env:
   NFPM_TARGET_PACKAGER: apk,deb,rpm
   NFPM_TARGET_COMPONENTS: athenz_user_cert
   GITHUB_REPOSITORY: ctyano/athenz_user_cert
+  TARBALL_TAEGET_PLATFORMS: darwin/amd64,darwin/arm64
 
 jobs:
   build:
@@ -152,7 +153,7 @@ jobs:
             GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g')
             for packager in $(echo ${{ env.NFPM_TARGET_PACKAGER }} | tr "," "\n"); do
               for component in $(echo ${{ env.NFPM_TARGET_COMPONENTS }} | tr "," "\n"); do
-                SEMVER=${{ github.event.inputs.target_version }} nfpm pkg -f nfpm/linux/$GOARCH/$component.yaml -p $packager -t .
+                SEMVER=${{ github.event.inputs.target_version }} nfpm pkg -f nfpm/linux/${GOARCH}/$component.yaml -p $packager -t .
               done
             done
           done
@@ -164,9 +165,8 @@ jobs:
         if: ${{ github.event_name != 'pull_request' && github.event.inputs.target_version != '' && github.event.inputs.target_version != github.event.inputs.current_version }}
         run: |
           set -x
-          platforms=("darwin/amd64" "darwin/arm64")
-          for platform in "${platforms[@]}"; do
-            GOOS=darwin GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g') make go-cross-build
+          for platform in $(echo ${{ env.TARBALL_TAEGET_PLATFORMS  }} | tr "," "\n"); do
+            GOOS=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\1/g') GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g') make go-cross-build
           done
 
       # A GitHub Action to Create tarball gzip
@@ -176,9 +176,8 @@ jobs:
         if: ${{ github.event_name != 'pull_request' && github.event.inputs.target_version != '' && github.event.inputs.target_version != github.event.inputs.current_version }}
         run: |
           set -x
-          platforms=("darwin/amd64" "darwin/arm64")
-          for platform in "${platforms[@]}"; do
-            GOOS=darwin
+          for platform in $(echo ${{ env.TARBALL_TAEGET_PLATFORMS  }} | tr "," "\n"); do
+            GOOS=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\1/g')
             GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g')
             for component in $(echo ${{ env.NFPM_TARGET_COMPONENTS }} | tr "," "\n"); do
               tar -czvf ${component}_${{ github.event.inputs.target_version }}_${GOOS}_${GOARCH}.tar.gz -C ${GOPATH}/bin/${GOOS}_${GOARCH} .
