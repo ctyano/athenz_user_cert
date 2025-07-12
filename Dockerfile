@@ -33,3 +33,4 @@ ARG APP_NAME
 COPY --from=builder /usr/bin/${APP_NAME} /usr/bin/${APP_NAME}
 
 ENTRYPOINT ["/usr/bin/${APP_NAME}"]
+
