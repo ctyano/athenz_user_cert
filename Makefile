@@ -117,10 +117,9 @@ go-clean:
 
 ifeq ($(DOCKER_TAG),)
 DOCKER_TAG := :latest
-else
+endif
 ifneq ($(VERSION),)
 DOCKER_TAG := :v$(VERSION)
-endif
 endif
 
 ifeq ($(PATCH),)
