@@ -14,6 +14,16 @@ This certificate is compatible with Athenz and can be used to authenticate the u
 make
 ```
 
+## How to install
+
+```
+brew tap ctyano/athenz_user_cert https://github.com/ctyano/athenz_user_cert
+```
+
+```
+brew install ctyano/athenz_user_cert/athenz_user_cert
+```
+
 ## List of Distributions
 
 ### Docker(OCI) Image

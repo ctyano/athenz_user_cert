@@ -1,4 +1,5 @@
 ---
+# https://github.com/goreleaser/goreleaser/blob/v1.13.1/www/docs/customization/build.md
 builds:
   - id: "athenz_user_cert"
     dir: .

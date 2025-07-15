@@ -28,8 +28,7 @@ FROM alpine
 
 RUN apk add net-tools openssl
 
-ARG APP_NAME
-ENV APP_NAME=${APP_NAME}
+ARG APP_NAME=athenz_user_cert
 
 COPY --from=builder /usr/bin/${APP_NAME} /usr/bin/${APP_NAME}
 
