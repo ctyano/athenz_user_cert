@@ -8,17 +8,17 @@ class AthenzUserCert < Formula
   version "0.0.0"
 
   on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/ctyano/athenz_user_cert/releases/download/v0.0.0/athenz_user_cert_0.0.0_darwin_arm64.zip"
-      sha256 "8071752892366cfdf926634b8e024ef60d68d94ca5798f37a14837eef09ab956"
+    if Hardware::CPU.intel?
+      url "https://github.com/ctyano/athenz_user_cert/releases/download/v0.0.0/athenz_user_cert_0.0.0_darwin_amd64.zip"
+      sha256 "e316eaf31197ccfef7e393b1eecda33bb295411dd0c631fee64e14c4d1fcdf13"
 
       def install
         bin.install "athenz_user_cert"
       end
     end
-    if Hardware::CPU.intel?
-      url "https://github.com/ctyano/athenz_user_cert/releases/download/v0.0.0/athenz_user_cert_0.0.0_darwin_amd64.zip"
-      sha256 "644f518d98b3362b13b0c5eb9861147bdf245b71e1f4959c32395fdcd6be647e"
+    if Hardware::CPU.arm?
+      url "https://github.com/ctyano/athenz_user_cert/releases/download/v0.0.0/athenz_user_cert_0.0.0_darwin_arm64.zip"
+      sha256 "90181c5f269679ced85c0901fb8ca0568ae6d3d544b8648cc043c02ca52a4e3c"
 
       def install
         bin.install "athenz_user_cert"
@@ -29,7 +29,7 @@ class AthenzUserCert < Formula
   on_linux do
     if Hardware::CPU.arm? && Hardware::CPU.is_64_bit?
       url "https://github.com/ctyano/athenz_user_cert/releases/download/v0.0.0/athenz_user_cert_0.0.0_linux_arm64.zip"
-      sha256 "2a749d384f54a16d1eb945870360c0987f89e83de42940dc2b935081152636b0"
+      sha256 "b1cb268fb6f831094cd0e8343bb98e91b36c5948d5af50b6ba27a389b8a9bc5f"
 
       def install
         bin.install "athenz_user_cert"
@@ -37,7 +37,7 @@ class AthenzUserCert < Formula
     end
     if Hardware::CPU.intel?
       url "https://github.com/ctyano/athenz_user_cert/releases/download/v0.0.0/athenz_user_cert_0.0.0_linux_amd64.zip"
-      sha256 "dc190975d11d309c1904b2e1d99127c4a18a8ab962bdeb23591e98ba28471dfd"
+      sha256 "d8ff890b357c23e6fbe7eec0f1c2367e003c15dce28810d80bce760c285db122"
 
       def install
         bin.install "athenz_user_cert"
