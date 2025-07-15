@@ -159,33 +159,6 @@ jobs:
             done
           done
 
-      # A GitHub Action to Cross build for Mac OS
-      -
-        name: Cross build for Mac OS
-        id: mac
-        if: ${{ github.event_name != 'pull_request' && github.event.inputs.target_version != '' && github.event.inputs.target_version != github.event.inputs.current_version }}
-        run: |
-          set -x
-          for platform in $(echo ${{ env.TARBALL_TAEGET_PLATFORMS  }} | tr "," "\n"); do
-            GOOS=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\1/g') GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g') make go-cross-build
-          done
-
-      # A GitHub Action to Create tarball gzip
-      -
-        name: Create tarball gzip for Mac OS
-        id: tgz
-        if: ${{ github.event_name != 'pull_request' && github.event.inputs.target_version != '' && github.event.inputs.target_version != github.event.inputs.current_version }}
-        run: |
-          set -x
-          for platform in $(echo ${{ env.TARBALL_TAEGET_PLATFORMS  }} | tr "," "\n"); do
-            GOOS=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\1/g')
-            GOARCH=$(echo $platform | sed -e 's/\([^/]*\)\/\([^/]*\).*/\2/g')
-            for component in $(echo ${{ env.NFPM_TARGET_COMPONENTS }} | tr "," "\n"); do
-              tar -czvf ${component}_${{ github.event.inputs.target_version }}_${GOOS}_${GOARCH}.tar.gz -C ${GOPATH}/bin/${GOOS}_${GOARCH} .
-              tar -tvf ${component}_${{ github.event.inputs.target_version }}_${GOOS}_${GOARCH}.tar.gz
-            done
-          done
-
       # A GitHub Action to create GitHub Release
       # https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28#create-a-release
       -
@@ -234,15 +207,6 @@ jobs:
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/$tag" \
             | jq '.id')
           for file in $(echo ${{ env.NFPM_TARGET_PACKAGER }} | sed -e 's/\([^,]*\)/\*.\1/g' | tr "," "\n"); do
-            curl \
-              -XPOST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H "Content-Type: $(file --mime-type -b $file)" \
-              --data-binary @$file \
-              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?name=$(basename $file)"
-          done
-          for file in $(echo tar.gz | sed -e 's/\([^,]*\)/\*.\1/g' | tr "," "\n"); do
             curl \
               -XPOST \
               -H "Accept: application/vnd.github+json" \
