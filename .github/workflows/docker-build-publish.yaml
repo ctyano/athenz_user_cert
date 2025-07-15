@@ -197,6 +197,7 @@ jobs:
         run: |
           if ${{ github.event_name != 'pull_request' }}; then \
             DOCKER_REGISTRY="${{ env.DOCKER_REGISTRY_URL }}/${{ env.DOCKER_REGISTRY_OWNER }}/" \
+            VERSION=${{ env.VERSION }} \
             PUSH=${{ github.event_name != 'pull_request' }} \
             make buildx; \
           else \
