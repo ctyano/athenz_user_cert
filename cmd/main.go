@@ -83,10 +83,10 @@ func main() {
 		log.Printf("Generated csr: %s\n", csr)
 	}
 
-	var cert *string
+	var cert string
 	switch *signerName {
 	case "crypki":
-		err, cert := signer.SendCrypkiCSR(*signerURL, csr, &map[string][]string{
+		err, cert = signer.SendCrypkiCSR(*signerURL, csr, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
@@ -94,7 +94,7 @@ func main() {
 			return
 		}
 		if *debug {
-			log.Printf("Signed cert: %s\n", *cert)
+			log.Printf("Signed cert: %s\n", cert)
 		}
 	case "cfssl":
 	}
@@ -112,7 +112,7 @@ func main() {
 	}
 
 	certDestination := certificate.UserCertPath()
-	err = ioutil.WriteFile(certDestination, []byte(*cert), 0600)
+	err = ioutil.WriteFile(certDestination, []byte(cert), 0600)
 	if err != nil {
 		log.Fatalf("Failed to save x.509 certificate to %s: %v", certDestination, err)
 		return

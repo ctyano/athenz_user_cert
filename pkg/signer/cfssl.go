@@ -16,7 +16,7 @@ var (
 )
 
 // https://github.com/cloudflare/cfssl/blob/master/doc/api/endpoint_sign.txt
-func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, *string) {
+func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, string) {
 
 	type RequestBody struct {
 		CSR            string `json:"certificate_request"`
@@ -33,7 +33,7 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 
 	jsonData, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("Failed to marshal JSON: %v", err), nil
+		return fmt.Errorf("Failed to marshal JSON: %v", err), ""
 	}
 
 	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_CFSSL_TIMEOUT))
@@ -43,7 +43,7 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("Failed to create request: %v", err), nil
+		return fmt.Errorf("Failed to create request: %v", err), ""
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -57,21 +57,21 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Failed to send request: %v", err), nil
+		return fmt.Errorf("Failed to send request: %v", err), ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body), nil
+		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body), ""
 	}
 
 	var responseBody map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
-		return fmt.Errorf("Failed to parse JSON response: %s", err), nil
+		return fmt.Errorf("Failed to parse JSON response: %s", err), ""
 	}
 	cert := fmt.Sprintf("%s", responseBody["certificate"])
 	fmt.Printf("%s\n", cert)
 
-	return nil, &cert
+	return nil, cert
 }
