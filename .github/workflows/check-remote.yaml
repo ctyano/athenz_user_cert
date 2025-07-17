@@ -134,6 +134,7 @@ jobs:
       # A GitHub Action to dispatch event
       # https://docs.github.com/en/rest/actions/workflows?apiVersion=2022-11-28#create-a-workflow-dispatch-event
       - name: Trigger Workflows
+        id: trigger
         if: ${{ env.CURRENT_VERSION != '' && env.TAG_VERSION != '' && env.TAG_VERSION != env.CURRENT_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -154,7 +155,7 @@ jobs:
       # For example, if a workflow run pushes code using the repository's GITHUB_TOKEN, a new workflow will not run even when the repository contains a workflow configured to run when push events occur.
       -
         name: Create git tag for the Next Version
-        id: tag
+        id: next-tag
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -167,6 +168,7 @@ jobs:
       # A GitHub Action to dispatch event
       # https://docs.github.com/en/rest/actions/workflows?apiVersion=2022-11-28#create-a-workflow-dispatch-event
       - name: Trigger Workflows for the Next Version
+        id: next-trigger
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
