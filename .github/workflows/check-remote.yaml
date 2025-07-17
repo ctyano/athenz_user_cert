@@ -10,8 +10,8 @@ on:
   # [skip ci], [ci skip], [no ci], [skip actions], or [actions skip]
   # workflows triggered on the push or pull_request events will be skipped.
   # https://github.blog/changelog/2021-02-08-github-actions-skip-pull-request-and-push-workflows-with-skip-ci/
-  schedule:
-    - cron: '0 21 * * *' # Everyay 21:00 UTC, Everyday 06:00 JST
+  #schedule:
+  #  - cron: '0 21 * * *' # Everyay 21:00 UTC, Everyday 06:00 JST
   push:
     branches:
       - main
@@ -132,9 +132,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -x
+
+          latest_tag=${{ env.TAG_VERSION }}
+          version=${latest_tag#v}
+          IFS='.' read -r major minor patch <<< "$version"
+          patch=$((patch + 1))
+          next_version=v$major.$minor.$patch
+
           curl --fail -X POST \
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             https://api.github.com/repos/${{ github.repository }}/actions/workflows/trigger-workflows.yaml/dispatches \
-            -d "{\"ref\":\"${{ env.TAG_VERSION }}\",\"inputs\":{\"target_version\":\"${{ env.VERSION }}\",\"current_version\":\"${{ env.CURRENT_VERSION }}\"}}"
+            -d "{\"ref\":\"${{ env.TAG_VERSION }}\",\"inputs\":{\"target_version\":\"${next_version}\",\"current_version\":\"${{ env.CURRENT_VERSION }}\"}}"
 
