@@ -152,7 +152,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -x
-          git tag -f ${{ env.NEXT_PATCH_VERSION }}
+          git tag -f v${{ env.NEXT_PATCH_VERSION }}
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
           git push -f origin tag v${{ env.NEXT_PATCH_VERSION }}
 
