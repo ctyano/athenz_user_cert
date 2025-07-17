@@ -56,7 +56,7 @@ jobs:
         if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
         run: |
           # Get latest release tag with:
-          #   curl -s https://api.github.com/repos/AthenZ/athenz/releases \
+          #   curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/AthenZ/athenz/releases \
           #     | jq -r .[].tag_name \
           #     | grep -E ".*(v[0-9]*.[0-9]*.[0-9]*).*" \
           #     | sed -e 's/.*\(v[0-9]*.[0-9]*.[0-9]*\).*/\1/g' \
@@ -66,7 +66,7 @@ jobs:
             TAG_VERSION="$(git tag --points-at HEAD | sed -e 's/.*\(v[0-9]*.[0-9]*.[0-9]*\).*/\1/g')"
           else
             PACKAGE_VERSION="$( \
-              curl -s https://api.github.com/repos/${{ env.TRACKING_GIT_REPO }}/releases \
+              curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${{ env.TRACKING_GIT_REPO }}/releases \
                 | jq -r .[].tag_name \
                 | grep -E ".*(v[0-9]*.[0-9]*.[0-9]*).*" \
                 | sed -e 's/.*v\([0-9]*.[0-9]*.[0-9]*\).*/\1/g' \
@@ -74,7 +74,7 @@ jobs:
                 | head -n1 \
             )"
             TAG_VERSION="$( \
-              curl -s https://api.github.com/repos/${{ env.TRACKING_GIT_REPO }}/releases \
+              curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${{ env.TRACKING_GIT_REPO }}/releases \
                 | jq -r .[].tag_name \
                 | grep -E ".*(v[0-9]*.[0-9]*.[0-9]*).*" \
                 | sed -e 's/.*\(v[0-9]*.[0-9]*.[0-9]*\).*/\1/g' \
@@ -83,7 +83,7 @@ jobs:
             )"
           fi
           CURRENT_VERSION="$( \
-            curl -s https://api.github.com/repos/${{ env.CI_REPOSITORY_OWNER }}/${{ env.CI_REPOSITORY_NAME }}/releases \
+            curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${{ env.CI_REPOSITORY_OWNER }}/${{ env.CI_REPOSITORY_NAME }}/releases \
               | jq -r .[].tag_name \
               | grep -E ".*(v[0-9]*.[0-9]*.[0-9]*).*" \
               | sed -e 's/.*v\([0-9]*.[0-9]*.[0-9]*\).*/\1/g' \
