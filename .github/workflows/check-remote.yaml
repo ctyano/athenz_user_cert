@@ -89,8 +89,8 @@ jobs:
 
           IFS='.' read -r major minor patch <<< "${CURRENT_VERSION}"
           patch=$((patch + 1))
-          NEXT_PATCH_TAG_VERSION=v${major:-0}.${minor:-0}.$patch
-          printf "NEXT_PATCH_TAG_VERSION=${NEXT_PATCH_TAG_VERSION}\n" >> $GITHUB_ENV
+          NEXT_PATCH_VERSION=${major:-0}.${minor:-0}.$patch
+          printf "NEXT_PATCH_VERSION=${NEXT_PATCH_VERSION}\n" >> $GITHUB_ENV
 
       # This action checks-out your repository under $GITHUB_WORKSPACE, so your workflow can access it.
       # https://github.com/actions/checkout
@@ -113,7 +113,7 @@ jobs:
       -
         name: Create git tag
         id: tag
-        if: ${{ env.CURRENT_VERSION != '' && env.TAG_VERSION != '' && env.TAG_VERSION != env.CURRENT_VERSION }}
+        if: ${{ ! (github.event_name == 'push' && github.ref == 'refs/heads/main' ) && env.CURRENT_VERSION != '' && env.TAG_VERSION != '' && env.TAG_VERSION != env.CURRENT_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -126,7 +126,7 @@ jobs:
       # https://docs.github.com/en/rest/actions/workflows?apiVersion=2022-11-28#create-a-workflow-dispatch-event
       - name: Trigger Workflows
         id: trigger
-        if: ${{ env.CURRENT_VERSION != '' && env.TAG_VERSION != '' && env.TAG_VERSION != env.CURRENT_VERSION }}
+        if: ${{ ! (github.event_name == 'push' && github.ref == 'refs/heads/main' ) && env.CURRENT_VERSION != '' && env.TAG_VERSION != '' && env.TAG_VERSION != env.CURRENT_VERSION }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -152,9 +152,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -x
-          git tag -f ${{ env.NEXT_PATCH_TAG_VERSION }}
+          git tag -f ${{ env.NEXT_PATCH_VERSION }}
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
-          git push -f origin tag ${{ env.NEXT_PATCH_TAG_VERSION }}
+          git push -f origin tag v${{ env.NEXT_PATCH_VERSION }}
 
       # A GitHub Action to dispatch event
       # https://docs.github.com/en/rest/actions/workflows?apiVersion=2022-11-28#create-a-workflow-dispatch-event
@@ -169,5 +169,5 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             https://api.github.com/repos/${{ github.repository }}/actions/workflows/trigger-workflows.yaml/dispatches \
-            -d "{\"ref\":\"${{ env.TAG_VERSION }}\",\"inputs\":{\"target_version\":\"${{ env.NEXT_PATCH_TAG_VERSION }}\",\"current_version\":\"${{ env.CURRENT_VERSION }}\"}}"
+            -d "{\"ref\":\"v${{ env.NEXT_PATCH_VERSION }}\",\"inputs\":{\"target_version\":\"${{ env.NEXT_PATCH_VERSION }}\",\"current_version\":\"${{ env.CURRENT_VERSION }}\"}}"
 
