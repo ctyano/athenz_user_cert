@@ -73,14 +73,7 @@ jobs:
                 | sort -ruV \
                 | head -n1 \
             )"
-            TAG_VERSION="$( \
-              curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${{ env.TRACKING_GIT_REPO }}/releases \
-                | jq -r .[].tag_name \
-                | grep -E ".*(v[0-9]*.[0-9]*.[0-9]*).*" \
-                | sed -e 's/.*\(v[0-9]*.[0-9]*.[0-9]*\).*/\1/g' \
-                | sort -ruV \
-                | head -n1 \
-            )"
+            TAG_VERSION="v${PACKAGE_VERSION}"
           fi
           CURRENT_VERSION="$( \
             curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/${{ env.CI_REPOSITORY_OWNER }}/${{ env.CI_REPOSITORY_NAME }}/releases \
@@ -94,12 +87,10 @@ jobs:
           printf "TAG_VERSION=${TAG_VERSION}\n" >> $GITHUB_ENV
           printf "CURRENT_VERSION=${CURRENT_VERSION}\n" >> $GITHUB_ENV
 
-          latest_tag=${TAG_VERSION}
-          version=${latest_tag#v}
-          IFS='.' read -r major minor patch <<< "$version"
+          IFS='.' read -r major minor patch <<< "${CURRENT_VERSION}"
           patch=$((patch + 1))
-          NEXT_PATCH_VERSION=v$major.$minor.$patch
-          printf "NEXT_PATCH_VERSION=${NEXT_PATCH_VERSION}\n" >> $GITHUB_ENV
+          NEXT_PATCH_TAG_VERSION=v${major:-0}.${minor:-0}.$patch
+          printf "NEXT_PATCH_TAG_VERSION=${NEXT_PATCH_TAG_VERSION}\n" >> $GITHUB_ENV
 
       # This action checks-out your repository under $GITHUB_WORKSPACE, so your workflow can access it.
       # https://github.com/actions/checkout
@@ -161,9 +152,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -x
-          git tag -f ${{ env.NEXT_PATCH_VERSION }}
+          git tag -f ${{ env.NEXT_PATCH_TAG_VERSION }}
           git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
-          git push -f origin tag ${{ env.NEXT_PATCH_VERSION }}
+          git push -f origin tag ${{ env.NEXT_PATCH_TAG_VERSION }}
 
       # A GitHub Action to dispatch event
       # https://docs.github.com/en/rest/actions/workflows?apiVersion=2022-11-28#create-a-workflow-dispatch-event
@@ -178,5 +169,5 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             https://api.github.com/repos/${{ github.repository }}/actions/workflows/trigger-workflows.yaml/dispatches \
-            -d "{\"ref\":\"${{ env.TAG_VERSION }}\",\"inputs\":{\"target_version\":\"${{ env.NEXT_PATCH_VERSION }}\",\"current_version\":\"${{ env.CURRENT_VERSION }}\"}}"
+            -d "{\"ref\":\"${{ env.TAG_VERSION }}\",\"inputs\":{\"target_version\":\"${{ env.NEXT_PATCH_TAG_VERSION }}\",\"current_version\":\"${{ env.CURRENT_VERSION }}\"}}"
 
