@@ -28,7 +28,6 @@ var (
 	DEFAULT_OIDC_ACCESS_TOKEN_PATH     = ".athenz/.accesstoken"
 	DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY = "30" // in minutes
 	DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM = "name"
-	debug                              = true
 )
 
 type FileUtil interface {
@@ -42,34 +41,31 @@ func getAccessTokenCachePath() string {
 	return h + "/" + DEFAULT_OIDC_ACCESS_TOKEN_PATH
 }
 
-func getCachedAccessToken() string {
+func getCachedAccessToken(debug bool) (string, error) {
 	accessTokenFile := getAccessTokenCachePath()
 	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
-	if isCacheFileFresh(accessTokenFile, float64(validity)) {
+	if fresh, err := isCacheFileFresh(accessTokenFile, float64(validity), debug); fresh && err != nil {
 		data, err := ioutil.ReadFile(accessTokenFile)
 		if err != nil {
-			fmt.Printf("Could not read the file, error: %v\n", err)
+			return "", fmt.Errorf("Could not read the file, error: %v\n", err)
 		}
-		return strings.TrimSpace(string(data))
+		return strings.TrimSpace(string(data)), nil
 	}
-	return ""
+	return "", fmt.Errorf("Access Token has expired.\n")
 }
 
-func isCacheFileFresh(filename string, maxAge float64) bool {
+func isCacheFileFresh(filename string, maxAge float64, debug bool) (bool, error) {
 	info, err := os.Stat(filename)
 	if err != nil {
-		if debug {
-			fmt.Printf("Could not read the cache file, error: %v\n", err)
-		}
-		return false
+		return false, fmt.Errorf("Could not read the cache file, error: %v\n", err)
 	}
 	delta := time.Since(info.ModTime())
 	// return false if duration exceeds maxAge
 	expired := delta.Minutes() > maxAge
-	return !expired
+	return !expired, nil
 }
 
-func createCacheDir(dirname string) bool {
+func createCacheDir(dirname string, debug bool) (bool, error) {
 	if debug {
 		fmt.Printf("Checking if directory %s exists...\n", dirname)
 	}
@@ -79,44 +75,38 @@ func createCacheDir(dirname string) bool {
 		}
 		err := os.MkdirAll(dirname, 0755)
 		if err != nil {
-			fmt.Printf("Failed to create directory: %v", err)
-			return false
+			return false, fmt.Errorf("Failed to create directory: %v", err)
 		}
 	} else if err != nil {
-		fmt.Printf("Failed to check directory: %v", err)
-		return false
+		return false, fmt.Errorf("Failed to check directory: %v", err)
 	} else {
 		if debug {
 			fmt.Printf("The cache directory %s exists.\n", dirname)
 		}
 	}
-	return true
+	return true, nil
 }
 
-func GetAuthAccessToken(responseMode *string) (string, error) {
-	accessToken := getCachedAccessToken()
+func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
+	accessToken, err := getCachedAccessToken(*debug)
 	if accessToken != "" {
-		return accessToken, nil
+		return accessToken, err
 	}
 
 	// ==== OIDC Discovery ====
 	ctx := context.Background()
 	provider, err := oidc.NewProvider(ctx, DEFAULT_OIDC_ISSUER)
 	if err != nil {
-		fmt.Errorf("Failed to discover OIDC config from %s: %v", DEFAULT_OIDC_ISSUER, err)
+		return "", fmt.Errorf("Failed to discover OIDC config from %s: %v", DEFAULT_OIDC_ISSUER, err)
 	}
-	var endpoints struct {
-		AuthURL  string `json:"authorization_endpoint"`
-		TokenURL string `json:"token_endpoint"`
+	endpoints := provider.Endpoint()
+	if err != nil {
+		return "", fmt.Errorf("Failed to parse OIDC provider endpoints: %v", err)
 	}
-	if err := provider.Claims(&endpoints); err != nil {
-		fmt.Errorf("Failed to parse OIDC provider endpoints: %v", err)
+	if *debug {
+		fmt.Printf("Discovered authorization endpoint: %s\n", endpoints.AuthURL)
+		fmt.Printf("Discovered token endpoint: %s\n", endpoints.TokenURL)
 	}
-	//fmt.Printf("Discovered authorization endpoint: %s\n", endpoints.AuthURL)
-	//fmt.Printf("Discovered token endpoint: %s\n", endpoints.TokenURL)
-
-	//authURL := DEFAULT_OIDC_ISSUER + "/auth"
-	//tokenURL := DEFAULT_OIDC_ISSUER + "/token"
 
 	// ==== CONFIG ====
 	conf := &oauth2.Config{
@@ -167,19 +157,17 @@ func GetAuthAccessToken(responseMode *string) (string, error) {
 	defer cancel()
 	token, err := conf.Exchange(ctx, code)
 	if err != nil {
-		fmt.Errorf("Token exchange failed: %v", err)
+		return "", fmt.Errorf("Token exchange failed: %v", err)
 	}
 
 	accessToken = token.AccessToken
-	fmt.Printf("Access token: %s\n", accessToken)
 
 	if accessToken != "" {
 		accessTokenFilePath := getAccessTokenCachePath()
-		createCacheDir(filepath.Dir(accessTokenFilePath))
+		createCacheDir(filepath.Dir(accessTokenFilePath), *debug)
 		err := ioutil.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
 		if err != nil {
-			fmt.Errorf("Failed to store access token to: %s, error %s", accessTokenFilePath, err)
-			return "", err
+			return "", fmt.Errorf("Failed to store access token to: %s, error %s", accessTokenFilePath, err)
 		}
 	}
 	return accessToken, nil
@@ -219,15 +207,21 @@ func waitForCodeServer(listenAddress, responseMode string) string {
 	return code
 }
 
-func GetUserNameFromAccessToken(rawJWT string) (name string) {
+func GetUserNameFromAccessToken(rawJWT, userNameClaim string) (string, error) {
 	token, _, err := new(jwt.Parser).ParseUnverified(rawJWT, jwt.MapClaims{})
 	if err != nil {
-		fmt.Errorf("Invalid JWT: %s", rawJWT)
+		return "", fmt.Errorf("Invalid JWT: %s, error: %s", rawJWT, err)
 	}
 	claims := token.Claims.(jwt.MapClaims)
-	name, ok := claims[DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM].(string)
-	if !ok {
-		fmt.Errorf("No %s claim in JWT", DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM)
+	var userClaim string
+	if userNameClaim != "" {
+		userClaim = userNameClaim
+	} else {
+		userClaim = DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM
 	}
-	return
+	name, ok := claims[userClaim].(string)
+	if !ok {
+		return "", fmt.Errorf("No %s claim in JWT", userClaim)
+	}
+	return name, nil
 }
