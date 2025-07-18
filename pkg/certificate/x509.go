@@ -8,7 +8,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math/big"
 	"net"
 	"net/url"
@@ -190,7 +189,7 @@ func VerifyCertificate(cert, cacert *x509.Certificate) (err error) {
 func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *crypto.PrivateKey, *pem.Block) {
 	privateKey, err := GenerateKey(algorithm)
 	if err != nil {
-		log.Fatalf("Failed to generate a key: %s", err)
+		fmt.Errorf("Failed to generate a key: %s", err)
 		return err, nil, nil
 	}
 
@@ -218,7 +217,7 @@ func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) 
 		for _, v := range uris {
 			uri, err := url.Parse(v)
 			if err == nil && uri.Scheme != "" {
-				log.Fatalf("Invalid uri [%s]: %s", v, err)
+				fmt.Errorf("Invalid uri [%s]: %s", v, err)
 				return err, &privateKey, nil
 			}
 			sanuri = append(sanuri, uri)
@@ -237,7 +236,7 @@ func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) 
 
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, privateKey)
 	if err != nil {
-		log.Fatalf("Failed to create csr: %w", err)
+		fmt.Errorf("Failed to create csr: %w", err)
 		return err, &privateKey, nil
 	}
 
