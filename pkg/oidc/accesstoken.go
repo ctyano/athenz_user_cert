@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -104,14 +103,14 @@ func GetAuthAccessToken(responseMode *string) (string, error) {
 	ctx := context.Background()
 	provider, err := oidc.NewProvider(ctx, DEFAULT_OIDC_ISSUER)
 	if err != nil {
-		log.Fatalf("Failed to discover OIDC config from %s: %v", DEFAULT_OIDC_ISSUER, err)
+		fmt.Errorf("Failed to discover OIDC config from %s: %v", DEFAULT_OIDC_ISSUER, err)
 	}
 	var endpoints struct {
 		AuthURL  string `json:"authorization_endpoint"`
 		TokenURL string `json:"token_endpoint"`
 	}
 	if err := provider.Claims(&endpoints); err != nil {
-		log.Fatalf("Failed to parse OIDC provider endpoints: %v", err)
+		fmt.Errorf("Failed to parse OIDC provider endpoints: %v", err)
 	}
 	//fmt.Printf("Discovered authorization endpoint: %s\n", endpoints.AuthURL)
 	//fmt.Printf("Discovered token endpoint: %s\n", endpoints.TokenURL)
@@ -168,7 +167,7 @@ func GetAuthAccessToken(responseMode *string) (string, error) {
 	defer cancel()
 	token, err := conf.Exchange(ctx, code)
 	if err != nil {
-		log.Fatalf("Token exchange failed: %v", err)
+		fmt.Errorf("Token exchange failed: %v", err)
 	}
 
 	accessToken = token.AccessToken
@@ -179,7 +178,7 @@ func GetAuthAccessToken(responseMode *string) (string, error) {
 		createCacheDir(filepath.Dir(accessTokenFilePath))
 		err := ioutil.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
 		if err != nil {
-			log.Fatalf("Failed to store access token to: %s, error %s", accessTokenFilePath, err)
+			fmt.Errorf("Failed to store access token to: %s, error %s", accessTokenFilePath, err)
 			return "", err
 		}
 	}
@@ -223,12 +222,12 @@ func waitForCodeServer(listenAddress, responseMode string) string {
 func GetUserNameFromAccessToken(rawJWT string) (name string) {
 	token, _, err := new(jwt.Parser).ParseUnverified(rawJWT, jwt.MapClaims{})
 	if err != nil {
-		log.Fatalf("Invalid JWT: %s", rawJWT)
+		fmt.Errorf("Invalid JWT: %s", rawJWT)
 	}
 	claims := token.Claims.(jwt.MapClaims)
 	name, ok := claims[DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM].(string)
 	if !ok {
-		log.Fatalf("No %s claim in JWT", DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM)
+		fmt.Errorf("No %s claim in JWT", DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM)
 	}
 	return
 }

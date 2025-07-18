@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"strings"
 
@@ -56,31 +55,34 @@ func main() {
 	signerName := flag.String("signer", SIGNER_NAME, "Name for the certificate signer product(crypki or cfssl)")
 	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
 
-	responseMode := flag.String("response-mode", "query", "OAuth2 response_mode (query or form_post)")
+	responseMode := flag.String("response-mode", "form_post", "OAuth2 response_mode (query or form_post)")
 
 	flag.Parse()
 
 	accesstoken, err := oidc.GetAuthAccessToken(responseMode)
 	if err != nil {
-		log.Fatalf("Failed to get access token: %v\n", err)
-		return
+		fmt.Printf("Failed to get access token: %v\n", err)
+		os.Exit(1)
 	}
 	if *debug {
-		log.Printf("Access Token: %v\n", accesstoken)
+		fmt.Printf("Access Token is retrieved Successfully: %v\n", accesstoken)
 	}
 
 	if *commonName == "" {
 		*commonName = certificate.DEFAULT_ATHENZ_USER_PREFIX + oidc.GetUserNameFromAccessToken(accesstoken)
+		if *debug {
+			fmt.Printf("Athenz User Name is: %s\n", *commonName)
+		}
 	}
 
 	err, key, csrPEM := certificate.GenerateCSR("", commonName, dnsarg, emailarg, iparg, uriarg)
 	if err != nil {
-		log.Fatalf("Failed to generate csr: %v\n", err)
-		return
+		fmt.Printf("Failed to generate csr: %v\n", err)
+		os.Exit(1)
 	}
 	csr := string(pem.EncodeToMemory(csrPEM))
 	if *debug {
-		log.Printf("Generated csr: %s\n", csr)
+		fmt.Printf("Generated csr: %s\n", csr)
 	}
 
 	var cert string
@@ -90,31 +92,31 @@ func main() {
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
-			log.Fatalf("Failed to send csr: %v\n", err)
-			return
+			fmt.Printf("Failed to get signed certificate: %v\n", err)
+			os.Exit(1)
 		}
 		if *debug {
-			log.Printf("Signed cert: %s\n", cert)
+			fmt.Printf("Signed certificate: %s\n", cert)
 		}
 	case "cfssl":
 	}
 
 	keyPEM, err := certificate.PrivateKeyToPEM(*key)
 	if err != nil {
-		log.Fatalf("Failed to convert x.509 certificate key to PEM string: %v", err)
-		return
+		fmt.Printf("Failed to convert x.509 certificate key to PEM string: %v", err)
+		os.Exit(1)
 	}
 	keyDestination := certificate.UserKeyPath()
 	err = certificate.WritePEM(keyPEM, keyDestination)
 	if err != nil {
-		log.Fatalf("Failed to save x.509 certificate key to %s: %v", keyDestination, err)
-		return
+		fmt.Printf("Failed to save x.509 certificate key to %s: %v", keyDestination, err)
+		os.Exit(1)
 	}
 
 	certDestination := certificate.UserCertPath()
 	err = ioutil.WriteFile(certDestination, []byte(cert), 0600)
 	if err != nil {
-		log.Fatalf("Failed to save x.509 certificate to %s: %v", certDestination, err)
-		return
+		fmt.Printf("Failed to save x.509 certificate to %s: %v", certDestination, err)
+		os.Exit(1)
 	}
 }
