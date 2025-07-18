@@ -21,6 +21,24 @@ var (
 func main() {
 	appname := DEFAULT_APP_NAME
 
+	// Parse argument flags
+	signerURL := flag.String("url", "http://localhost:10000/v3/sig/x509-cert/keys/x509-key", "Target destination URL for the certificate sign request")
+
+	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
+	userNameClaim := flag.String("claim", oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM, "JWT Claim Name to extract the user name")
+
+	dnsarg := flag.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
+	emailarg := flag.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
+	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
+	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
+
+	signerName := flag.String("signer", SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
+	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
+
+	responseMode := flag.String("response-mode", "form_post", "OAuth2 response_mode (\"query\" or \"form_post\")")
+
+	flag.Parse()
+
 	if len(os.Args) == 2 {
 		usage := fmt.Sprintf(`Usage of %s:
   Generate certificate signing request and send the csr to the server.
@@ -29,6 +47,8 @@ func main() {
   Subcommands:
     version:
     	Print the version and the pre desined parameters of this CLI.
+    help:
+    	Print this help message.
 `, appname)
 		switch {
 		case strings.HasSuffix(os.Args[1], "version"):
@@ -42,25 +62,8 @@ func main() {
 		}
 	}
 
-	// Parse argument flags
-	signerURL := flag.String("url", "http://localhost:10000/v3/sig/x509-cert/keys/x509-key", "Target destination URL for the certificate sign request")
-
-	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: <athenz user prefix>.<oauth user name>)")
-
-	dnsarg := flag.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
-	emailarg := flag.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
-	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
-	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
-
-	signerName := flag.String("signer", SIGNER_NAME, "Name for the certificate signer product(crypki or cfssl)")
-	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
-
-	responseMode := flag.String("response-mode", "form_post", "OAuth2 response_mode (query or form_post)")
-
-	flag.Parse()
-
-	accesstoken, err := oidc.GetAuthAccessToken(responseMode)
-	if err != nil {
+	accesstoken, err := oidc.GetAuthAccessToken(responseMode, debug)
+	if err != nil || accesstoken == "" {
 		fmt.Printf("Failed to get access token: %v\n", err)
 		os.Exit(1)
 	}
@@ -69,7 +72,12 @@ func main() {
 	}
 
 	if *commonName == "" {
-		*commonName = certificate.DEFAULT_ATHENZ_USER_PREFIX + oidc.GetUserNameFromAccessToken(accesstoken)
+		username, err := oidc.GetUserNameFromAccessToken(accesstoken, *userNameClaim)
+		if err != nil {
+			fmt.Printf("Failed to extract Athenz User Name from Access Token: %s\n", err)
+			os.Exit(1)
+		}
+		*commonName = certificate.DEFAULT_ATHENZ_USER_PREFIX + username
 		if *debug {
 			fmt.Printf("Athenz User Name is: %s\n", *commonName)
 		}
@@ -119,4 +127,7 @@ func main() {
 		fmt.Printf("Failed to save x.509 certificate to %s: %v", certDestination, err)
 		os.Exit(1)
 	}
+
+	fmt.Printf("Signed Athenz User certificate key is successfully stored at: %s\n", keyDestination)
+	fmt.Printf("Signed Athenz User certificate is successfully stored at: %s\n", certDestination)
 }
