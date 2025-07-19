@@ -72,7 +72,6 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 		return fmt.Errorf("Failed to parse JSON response: %s", err), ""
 	}
 	cert := fmt.Sprintf("%s", responseBody["certificate"])
-	fmt.Printf("%s\n", cert)
 
 	return nil, cert
 }
