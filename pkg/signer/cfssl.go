@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	DEFAULT_CFSSL_TIMEOUT = "10" // in seconds
+	DEFAULT_SIGNER_CFSSL_URL     = "http://localhost:10000/api/v1/cfssl/sign"
+	DEFAULT_SIGNER_CFSSL_TIMEOUT = "10" // in seconds
 )
 
 // https://github.com/cloudflare/cfssl/blob/master/doc/api/endpoint_sign.txt
@@ -36,7 +37,7 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 		return fmt.Errorf("Failed to marshal JSON: %v", err), ""
 	}
 
-	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_CFSSL_TIMEOUT))
+	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CFSSL_TIMEOUT))
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 	}

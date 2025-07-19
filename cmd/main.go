@@ -14,15 +14,22 @@ import (
 )
 
 var (
-	DEFAULT_APP_NAME = "athenz_user_cert"
-	SIGNER_NAME      = "crypki"
+	DEFAULT_APP_NAME    = "athenz_user_cert"
+	DEFAULT_SIGNER_NAME = "crypki"
 )
 
 func main() {
 	appname := DEFAULT_APP_NAME
+	var defaultSignerURL string
+	switch DEFAULT_SIGNER_NAME {
+	case "crypki":
+		defaultSignerURL = signer.DEFAULT_SIGNER_CRYPKI_URL
+	case "cfssl":
+		defaultSignerURL = signer.DEFAULT_SIGNER_CFSSL_URL
+	}
 
 	// Parse argument flags
-	signerURL := flag.String("url", "http://localhost:10000/v3/sig/x509-cert/keys/x509-key", "Target destination URL for the certificate sign request")
+	signerURL := flag.String("url", defaultSignerURL, "Target destination URL for the certificate sign request")
 
 	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
 	userNameClaim := flag.String("claim", oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM, "JWT Claim Name to extract the user name")
@@ -32,7 +39,7 @@ func main() {
 	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
 	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
 
-	signerName := flag.String("signer", SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
+	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
 	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
 
 	responseMode := flag.String("response-mode", "form_post", "OAuth2 response_mode (\"query\" or \"form_post\")")
@@ -44,11 +51,13 @@ func main() {
   Generate certificate signing request and send the csr to the server.
   Authenticate user with Open ID Connect protocol and retrieve OAuth Access Token.
 
-  Subcommands:
-    version:
-    	Print the version and the pre desined parameters of this CLI.
-    help:
-    	Print this help message.
+Subcommands:
+  version:
+  	Print the version and the pre desined parameters of this CLI.
+  help:
+  	Print this help message.
+
+Options:
 `, appname)
 		switch {
 		case strings.HasSuffix(os.Args[1], "version"):
