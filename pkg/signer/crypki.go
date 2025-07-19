@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	DEFAULT_CRYPKI_VALIDITY   = "2592000" // 30 * 24 * 60 * 60, 30 days in seconds
-	DEFAULT_CRYPKI_IDENTIFIER = "athenz"
-	DEFAULT_CRYPKI_TIMEOUT    = "10" // in seconds
+	DEFAULT_SIGNER_CRYPKI_URL        = "http://localhost:10000/v3/sig/x509-cert/keys/x509-key"
+	DEFAULT_SIGNER_CRYPKI_VALIDITY   = "2592000" // 30 * 24 * 60 * 60, 30 days in seconds
+	DEFAULT_SIGNER_CRYPKI_IDENTIFIER = "athenz"
+	DEFAULT_SIGNER_CRYPKI_TIMEOUT    = "10" // in seconds
 )
 
 func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error, string) {
@@ -28,11 +29,11 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 		Validity int     `json:"validity"`
 	}
 
-	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_CRYPKI_VALIDITY))
+	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CRYPKI_VALIDITY))
 	body := RequestBody{
 		CSR: csr,
 		KeyMeta: KeyMeta{
-			Identifier: DEFAULT_CRYPKI_IDENTIFIER,
+			Identifier: DEFAULT_SIGNER_CRYPKI_IDENTIFIER,
 		},
 		Validity: validity,
 	}
@@ -42,7 +43,7 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 		return fmt.Errorf("Failed to marshal JSON: %v", err), ""
 	}
 
-	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_CRYPKI_TIMEOUT))
+	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CRYPKI_TIMEOUT))
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 	}
