@@ -12,19 +12,20 @@ import (
 )
 
 var (
-	DEFAULT_CFSSL_TIMEOUT = "10" // in seconds
+	DEFAULT_SIGNER_CFSSL_URL     = "http://localhost:10000/api/v1/cfssl/sign"
+	DEFAULT_SIGNER_CFSSL_TIMEOUT = "10" // in seconds
 )
 
 // https://github.com/cloudflare/cfssl/blob/master/doc/api/endpoint_sign.txt
 func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, string) {
 
 	type RequestBody struct {
-		CSR            string `json:"certificate_request"`
-		Host           string `json:hosts`
-		SerialSequence string `json:"serial_sequence"`
-		Label          string `json:"label"`
-		Profile        string `json:"profile"`
-		Bundle         string `json:"bundle"`
+		CSR string `json:"certificate_request"`
+		//Host           string `json:hosts`
+		//SerialSequence string `json:"serial_sequence"`
+		//Label          string `json:"label"`
+		//Profile        string `json:"profile"`
+		//Bundle         string `json:"bundle"`
 	}
 
 	body := RequestBody{
@@ -36,7 +37,7 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 		return fmt.Errorf("Failed to marshal JSON: %v", err), ""
 	}
 
-	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_CFSSL_TIMEOUT))
+	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CFSSL_TIMEOUT))
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
 	}
@@ -57,21 +58,24 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Failed to send request: %v", err), ""
+		return fmt.Errorf("Failed to send request: %w", err), ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body), ""
+		body, _ := io.ReadAll(resp.Body) // safe to ignore error for error messages
+		return fmt.Errorf("Received non-OK response: %s, body: %s", resp.Status, strings.TrimSpace(string(body))), ""
 	}
 
-	var responseBody map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
-		return fmt.Errorf("Failed to parse JSON response: %s", err), ""
+	var response struct {
+		Result struct {
+			Certificate string `json:"certificate"`
+		} `json:"result"`
 	}
-	cert := fmt.Sprintf("%s", responseBody["certificate"])
-	fmt.Printf("%s\n", cert)
 
-	return nil, cert
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return fmt.Errorf("Failed to parse JSON response: %w", err), ""
+	}
+
+	return nil, response.Result.Certificate
 }

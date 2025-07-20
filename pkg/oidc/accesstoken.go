@@ -31,7 +31,7 @@ var (
 )
 
 type FileUtil interface {
-	isCacheFileFresh(filename string, maxage float64) bool
+	isCacheFileExpired(filename string, maxage float64) bool
 	createCacheDir(dirname string) bool
 	getCachedAccessToken() string
 }
@@ -44,17 +44,21 @@ func getAccessTokenCachePath() string {
 func getCachedAccessToken(debug bool) (string, error) {
 	accessTokenFile := getAccessTokenCachePath()
 	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
-	if fresh, err := isCacheFileFresh(accessTokenFile, float64(validity), debug); fresh && err != nil {
+	if expired, err := isCacheFileExpired(accessTokenFile, float64(validity), debug); !expired && err == nil {
 		data, err := ioutil.ReadFile(accessTokenFile)
 		if err != nil {
-			return "", fmt.Errorf("Could not read the file, error: %v\n", err)
+			return "", fmt.Errorf("Could not read the cache file, error: %v\n", err)
+		}
+		if expired {
+			return "", fmt.Errorf("Access Token has expired.\n")
 		}
 		return strings.TrimSpace(string(data)), nil
+	} else {
+		return "", fmt.Errorf("Could not check the cache file, error: %v\n", err)
 	}
-	return "", fmt.Errorf("Access Token has expired.\n")
 }
 
-func isCacheFileFresh(filename string, maxAge float64, debug bool) (bool, error) {
+func isCacheFileExpired(filename string, maxAge float64, debug bool) (bool, error) {
 	info, err := os.Stat(filename)
 	if err != nil {
 		return false, fmt.Errorf("Could not read the cache file, error: %v\n", err)
@@ -62,7 +66,7 @@ func isCacheFileFresh(filename string, maxAge float64, debug bool) (bool, error)
 	delta := time.Since(info.ModTime())
 	// return false if duration exceeds maxAge
 	expired := delta.Minutes() > maxAge
-	return !expired, nil
+	return expired, nil
 }
 
 func createCacheDir(dirname string, debug bool) (bool, error) {
@@ -89,6 +93,9 @@ func createCacheDir(dirname string, debug bool) (bool, error) {
 
 func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 	accessToken, err := getCachedAccessToken(*debug)
+	if *debug && err != nil {
+		fmt.Printf("Failed get cached access token: %s", err)
+	}
 	if accessToken != "" {
 		return accessToken, err
 	}
