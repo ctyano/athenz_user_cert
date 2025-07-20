@@ -77,7 +77,7 @@ Options:
 		os.Exit(1)
 	}
 	if *debug {
-		fmt.Printf("Access Token is retrieved Successfully: %v\n", accesstoken)
+		fmt.Printf("Access Token retrieved Successfully: %v\n", accesstoken)
 	}
 
 	if *commonName == "" {
@@ -97,7 +97,7 @@ Options:
 		fmt.Printf("Failed to generate csr: %v\n", err)
 		os.Exit(1)
 	}
-	csr := string(pem.EncodeToMemory(csrPEM))
+	csr := strings.TrimSuffix(string(pem.EncodeToMemory(csrPEM)), "\n")
 	if *debug {
 		fmt.Printf("Generated csr: %s\n", csr)
 	}
@@ -116,6 +116,16 @@ Options:
 			fmt.Printf("Signed certificate: %s\n", cert)
 		}
 	case "cfssl":
+		err, cert = signer.SendCFSSLCSR(*signerURL, csr, &map[string][]string{
+			"Authorization": []string{"Bearer " + accesstoken},
+		})
+		if err != nil {
+			fmt.Printf("Failed to get signed certificate: %v\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("Signed certificate: %s\n", cert)
+		}
 	}
 
 	keyPEM, err := certificate.PrivateKeyToPEM(*key)

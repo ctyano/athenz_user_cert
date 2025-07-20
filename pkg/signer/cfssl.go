@@ -20,12 +20,12 @@ var (
 func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, string) {
 
 	type RequestBody struct {
-		CSR            string `json:"certificate_request"`
-		Host           string `json:hosts`
-		SerialSequence string `json:"serial_sequence"`
-		Label          string `json:"label"`
-		Profile        string `json:"profile"`
-		Bundle         string `json:"bundle"`
+		CSR string `json:"certificate_request"`
+		//Host           string `json:hosts`
+		//SerialSequence string `json:"serial_sequence"`
+		//Label          string `json:"label"`
+		//Profile        string `json:"profile"`
+		//Bundle         string `json:"bundle"`
 	}
 
 	body := RequestBody{
@@ -58,20 +58,24 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Failed to send request: %v", err), ""
+		return fmt.Errorf("Failed to send request: %w", err), ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body), ""
+		body, _ := io.ReadAll(resp.Body) // safe to ignore error for error messages
+		return fmt.Errorf("Received non-OK response: %s, body: %s", resp.Status, strings.TrimSpace(string(body))), ""
 	}
 
-	var responseBody map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
-		return fmt.Errorf("Failed to parse JSON response: %s", err), ""
+	var response struct {
+		Result struct {
+			Certificate string `json:"certificate"`
+		} `json:"result"`
 	}
-	cert := fmt.Sprintf("%s", responseBody["certificate"])
 
-	return nil, cert
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return fmt.Errorf("Failed to parse JSON response: %w", err), ""
+	}
+
+	return nil, response.Result.Certificate
 }
