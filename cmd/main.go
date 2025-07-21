@@ -147,6 +147,6 @@ Options:
 		os.Exit(1)
 	}
 
-	fmt.Printf("Signed Athenz User certificate key is successfully stored at: %s\n", keyDestination)
-	fmt.Printf("Signed Athenz User certificate is successfully stored at: %s\n", certDestination)
+	fmt.Printf("Signed Athenz User certificate key is successfully stored at: \t%s\n", keyDestination)
+	fmt.Printf("Signed Athenz User certificate is successfully stored at: \t%s\n", certDestination)
 }

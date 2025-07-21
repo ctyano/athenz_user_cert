@@ -139,7 +139,7 @@ func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 		}()
 		authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
 		authCodeURL += "&response_mode=" + *responseMode
-		fmt.Printf("Your browser should open. If not, open this URL:\n%s\n", authCodeURL)
+		fmt.Printf("Your browser should open. If not, open this URL:\n%s\n\n", authCodeURL)
 		_ = exec.Command("open", authCodeURL).Start()
 		<-serverDone
 	} else {
