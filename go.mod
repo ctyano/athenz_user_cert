@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	github.com/coreos/go-oidc v2.3.0+incompatible
-	github.com/golang-jwt/jwt/v5 v5.2.2
+	github.com/golang-jwt/jwt/v5 v5.2.3
 	golang.org/x/oauth2 v0.30.0
 )
 
