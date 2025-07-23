@@ -73,11 +73,11 @@ Options:
 
 	accesstoken, err := oidc.GetAuthAccessToken(responseMode, debug)
 	if err != nil || accesstoken == "" {
-		fmt.Printf("Failed to get access token: %v\n", err)
+		fmt.Printf("Failed to get access token: %s\n", err)
 		os.Exit(1)
 	}
 	if *debug {
-		fmt.Printf("Access Token retrieved Successfully: %v\n", accesstoken)
+		fmt.Printf("Access Token retrieved Successfully:\n%s\n", accesstoken)
 	}
 
 	if *commonName == "" {
@@ -94,12 +94,12 @@ Options:
 
 	err, key, csrPEM := certificate.GenerateCSR("", commonName, dnsarg, emailarg, iparg, uriarg)
 	if err != nil {
-		fmt.Printf("Failed to generate csr: %v\n", err)
+		fmt.Printf("Failed to generate csr: %s\n", err)
 		os.Exit(1)
 	}
 	csr := strings.TrimSuffix(string(pem.EncodeToMemory(csrPEM)), "\n")
 	if *debug {
-		fmt.Printf("Generated csr: %s\n", csr)
+		fmt.Printf("Generated csr:\n%s\n", csr)
 	}
 
 	var cert string
@@ -109,41 +109,41 @@ Options:
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
-			fmt.Printf("Failed to get signed certificate: %v\n", err)
+			fmt.Printf("Failed to get signed certificate: %s\n", err)
 			os.Exit(1)
 		}
 		if *debug {
-			fmt.Printf("Signed certificate: %s\n", cert)
+			fmt.Printf("Signed certificate:\n%s\n", cert)
 		}
 	case "cfssl":
 		err, cert = signer.SendCFSSLCSR(*signerURL, csr, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
-			fmt.Printf("Failed to get signed certificate: %v\n", err)
+			fmt.Printf("Failed to get signed certificate: %s\n", err)
 			os.Exit(1)
 		}
 		if *debug {
-			fmt.Printf("Signed certificate: %s\n", cert)
+			fmt.Printf("Signed certificate:\n%s\n", cert)
 		}
 	}
 
 	keyPEM, err := certificate.PrivateKeyToPEM(*key)
 	if err != nil {
-		fmt.Printf("Failed to convert x.509 certificate key to PEM string: %v", err)
+		fmt.Printf("Failed to convert X.509 certificate key to PEM string: %s", err)
 		os.Exit(1)
 	}
 	keyDestination := certificate.UserKeyPath()
 	err = certificate.WritePEM(keyPEM, keyDestination)
 	if err != nil {
-		fmt.Printf("Failed to save x.509 certificate key to %s: %v", keyDestination, err)
+		fmt.Printf("Failed to save X.509 certificate key to %s: %s", keyDestination, err)
 		os.Exit(1)
 	}
 
 	certDestination := certificate.UserCertPath()
 	err = ioutil.WriteFile(certDestination, []byte(cert), 0600)
 	if err != nil {
-		fmt.Printf("Failed to save x.509 certificate to %s: %v", certDestination, err)
+		fmt.Printf("Failed to save X.509 certificate to %s: %s", certDestination, err)
 		os.Exit(1)
 	}
 
