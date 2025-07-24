@@ -208,7 +208,7 @@ func waitForCodeServer(listenAddress, responseMode string) string {
 	go func() {
 		_ = server.ListenAndServe()
 	}()
-	defer server.Close()
+	defer func() { time.Sleep(1 * time.Second); server.Close() }()
 
 	code := <-codeCh
 	return code
