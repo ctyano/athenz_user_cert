@@ -73,14 +73,13 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body), ""
 	}
 
-	var responseBody map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&responseBody); err != nil {
-		return fmt.Errorf("Failed to parse JSON response: %s", err), ""
+	var response struct {
+		Cert string `json:"cert"`
 	}
-	if responseBody["certificate"] == nil {
-		return fmt.Errorf("Failed find JSON element: %v", responseBody), ""
-	}
-	cert := fmt.Sprintf("%s", responseBody["certificate"])
 
-	return nil, cert
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return fmt.Errorf("Failed to parse JSON response: %w", err), ""
+	}
+
+	return nil, response.Cert
 }
