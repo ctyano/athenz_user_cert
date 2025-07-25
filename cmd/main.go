@@ -20,16 +20,11 @@ var (
 
 func main() {
 	appname := DEFAULT_APP_NAME
-	var defaultSignerURL string
-	switch DEFAULT_SIGNER_NAME {
-	case "crypki":
-		defaultSignerURL = signer.DEFAULT_SIGNER_CRYPKI_URL
-	case "cfssl":
-		defaultSignerURL = signer.DEFAULT_SIGNER_CFSSL_URL
-	}
 
 	// Parse argument flags
-	signerURL := flag.String("url", defaultSignerURL, "Target destination URL for the certificate sign request")
+	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
+	signerURL := flag.String("sign-url", "", "Target destination URL to send the certificate sign request (leave it empty to use default)")
+	caURL := flag.String("ca-url", "", "Target destination URL to retrieve the ca certificate (leave it empty to use default)")
 
 	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
 	userNameClaim := flag.String("claim", oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM, "JWT Claim Name to extract the user name")
@@ -39,7 +34,6 @@ func main() {
 	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
 	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
 
-	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
 	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
 
 	responseMode := flag.String("response-mode", "form_post", "OAuth2 response_mode (\"query\" or \"form_post\")")
@@ -102,7 +96,28 @@ Options:
 		fmt.Printf("Generated csr:\n%s\n", csr)
 	}
 
-	var cert string
+	switch *signerName {
+	case "crypki":
+		if *signerURL == "" {
+			*signerURL = signer.DEFAULT_SIGNER_CRYPKI_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_CRYPKI_CA_URL
+		}
+	case "cfssl":
+		if *signerURL == "" {
+			*signerURL = signer.DEFAULT_SIGNER_CFSSL_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
+		}
+	}
+	if *debug {
+		fmt.Printf("Signer URL is set as:%s\n", *signerURL)
+		fmt.Printf("Signer CA URL is set as:%s\n", *caURL)
+	}
+
+	var cert, cacert string
 	switch *signerName {
 	case "crypki":
 		err, cert = signer.SendCrypkiCSR(*signerURL, csr, &map[string][]string{
@@ -115,6 +130,16 @@ Options:
 		if *debug {
 			fmt.Printf("Signed certificate:\n%s\n", cert)
 		}
+		err, cacert = signer.GetCrypkiRootCA(*caURL, &map[string][]string{
+			"Authorization": []string{"Bearer " + accesstoken},
+		})
+		if err != nil {
+			fmt.Printf("Failed to get ca certificate: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("CA certificate:\n%s\n", cacert)
+		}
 	case "cfssl":
 		err, cert = signer.SendCFSSLCSR(*signerURL, csr, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
@@ -125,6 +150,16 @@ Options:
 		}
 		if *debug {
 			fmt.Printf("Signed certificate:\n%s\n", cert)
+		}
+		err, cacert = signer.GetCFSSLRootCA(*caURL, &map[string][]string{
+			"Authorization": []string{"Bearer " + accesstoken},
+		})
+		if err != nil {
+			fmt.Printf("Failed to get ca certificate: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("CA certificate:\n%s\n", cacert)
 		}
 	}
 
@@ -146,7 +181,14 @@ Options:
 		fmt.Printf("Failed to save X.509 certificate to %s: %s", certDestination, err)
 		os.Exit(1)
 	}
+	caCertDestination := certificate.CACertPath()
+	err = ioutil.WriteFile(caCertDestination, []byte(cacert), 0600)
+	if err != nil {
+		fmt.Printf("Failed to save X.509 CA certificate to %s: %s", caCertDestination, err)
+		os.Exit(1)
+	}
 
 	fmt.Printf("Signed Athenz User certificate key is successfully stored at: \t%s\n", keyDestination)
 	fmt.Printf("Signed Athenz User certificate is successfully stored at: \t%s\n", certDestination)
+	fmt.Printf("Signed Athenz CA certificate is successfully stored at: \t%s\n", caCertDestination)
 }
