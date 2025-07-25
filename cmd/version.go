@@ -33,11 +33,13 @@ func ExecuteVersionCommand(arg []string, versionFlagSet *flag.FlagSet) {
 
 	fmt.Printf("CLI X.509 configuration:\n")
 	fmt.Printf("  CLI X.509 configuration for Crypki:\n")
-	fmt.Printf("    CLI X.509 Certificate Signer URL: %s\n", signer.DEFAULT_SIGNER_CRYPKI_URL)
+	fmt.Printf("    CLI X.509 Certificate Signer URL: %s\n", signer.DEFAULT_SIGNER_CRYPKI_SIGN_URL)
+	fmt.Printf("    CLI X.509 Certificate CA URL: %s\n", signer.DEFAULT_SIGNER_CRYPKI_CA_URL)
 	fmt.Printf("    CLI X.509 Certificate Validity: %s seconds\n", signer.DEFAULT_SIGNER_CRYPKI_VALIDITY)
 	fmt.Printf("    CLI X.509 Certificate Identifier: %s\n", signer.DEFAULT_SIGNER_CRYPKI_IDENTIFIER)
 	fmt.Printf("    CLI X.509 Certificate Request Timeout: %s seconds\n", signer.DEFAULT_SIGNER_CRYPKI_TIMEOUT)
 	fmt.Printf("  CLI X.509 configuration for CFSSL:\n")
-	fmt.Printf("    CLI X.509 Certificate Signer URL: %s\n", signer.DEFAULT_SIGNER_CFSSL_URL)
+	fmt.Printf("    CLI X.509 Certificate Signer URL: %s\n", signer.DEFAULT_SIGNER_CFSSL_SIGN_URL)
+	fmt.Printf("    CLI X.509 Certificate CA URL: %s\n", signer.DEFAULT_SIGNER_CFSSL_CA_URL)
 	fmt.Printf("    CLI X.509 Certificate Request Timeout: %s seconds\n", signer.DEFAULT_SIGNER_CFSSL_TIMEOUT)
 }

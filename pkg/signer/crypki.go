@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	DEFAULT_SIGNER_CRYPKI_URL        = "http://localhost:10000/v3/sig/x509-cert/keys/x509-key"
+	DEFAULT_SIGNER_CRYPKI_SIGN_URL   = "http://localhost:10000/v3/sig/x509-cert/keys/x509-key"
+	DEFAULT_SIGNER_CRYPKI_CA_URL     = "http://localhost:10000/v3/sig/x509-cert/keys/x509-key"
 	DEFAULT_SIGNER_CRYPKI_VALIDITY   = "2592000" // 30 * 24 * 60 * 60, 30 days in seconds
 	DEFAULT_SIGNER_CRYPKI_IDENTIFIER = "athenz"
 	DEFAULT_SIGNER_CRYPKI_TIMEOUT    = "10" // in seconds
@@ -40,7 +41,7 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 
 	jsonData, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("Failed to marshal JSON: %v", err), ""
+		return fmt.Errorf("Failed to marshal JSON: %s", err), ""
 	}
 
 	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CRYPKI_TIMEOUT))
@@ -50,7 +51,7 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return fmt.Errorf("Failed to create request: %v", err), ""
+		return fmt.Errorf("Failed to create request: %s", err), ""
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -64,13 +65,55 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Failed to send request: %v", err), ""
+		return fmt.Errorf("Failed to send request: %s", err), ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Received non-OK response: %s, error: %s", resp.Status, body), ""
+		return fmt.Errorf("Received non-OK status: %s, url: %s, response: %s", resp.Status, url, body), ""
+	}
+
+	var response struct {
+		Cert string `json:"cert"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return fmt.Errorf("Failed to parse JSON response: %w", err), ""
+	}
+
+	return nil, response.Cert
+}
+
+func GetCrypkiRootCA(url string, headers *map[string][]string) (error, string) {
+	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CRYPKI_TIMEOUT))
+	client := &http.Client{
+		Timeout: time.Duration(timeout) * time.Second,
+	}
+
+	req, err := http.NewRequest("GET", url, bytes.NewBuffer(nil))
+	if err != nil {
+		return fmt.Errorf("Failed to create request: %s", err), ""
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	if headers != nil {
+		for key, values := range *headers {
+			for _, value := range values {
+				req.Header.Add(key, value)
+			}
+		}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("Failed to send request: %s", err), ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("Received non-OK status: %s, url: %s, response: %s", resp.Status, url, body), ""
 	}
 
 	var response struct {

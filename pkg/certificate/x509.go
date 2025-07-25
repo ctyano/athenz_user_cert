@@ -18,6 +18,7 @@ import (
 
 var (
 	DEFAULT_X509_USERCERT_PATH = "/.athenz/user.cert.pem"
+	DEFAULT_X509_CACERT_PATH   = "/.athenz/ca.cert.pem"
 	DEFAULT_ATHENZ_USER_PREFIX = "user."
 )
 
@@ -249,6 +250,11 @@ func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) 
 func UserCertPath() string {
 	h, _ := os.UserHomeDir()
 	return h + DEFAULT_X509_USERCERT_PATH
+}
+
+func CACertPath() string {
+	h, _ := os.UserHomeDir()
+	return h + DEFAULT_X509_CACERT_PATH
 }
 
 func WritePEM(pemBlock *pem.Block, pemFilePath string) (err error) {
