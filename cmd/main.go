@@ -4,7 +4,6 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -20,6 +19,36 @@ var (
 
 func main() {
 	appname := DEFAULT_APP_NAME
+
+	usage := fmt.Sprintf(`Usage of %s:
+  Generate certificate signing request and send the csr to the server.
+  Authenticate user with Open ID Connect protocol and retrieve OAuth Access Token.
+
+Subcommands:
+  version:
+  	Print the version and the pre desined parameters of this CLI.
+  help:
+  	Print this help message.
+
+Options:
+`, appname)
+
+	if len(os.Args) > 1 {
+		switch {
+		case strings.HasSuffix(os.Args[1], "version"):
+			versionFlagSet := flag.NewFlagSet("version", flag.ExitOnError)
+			ExecuteVersionCommand(os.Args[2:], versionFlagSet)
+			return
+		case strings.HasSuffix(os.Args[1], "test"):
+			testFlagSet := flag.NewFlagSet("test", flag.ExitOnError)
+			ExecuteTestCommand(os.Args[2:], testFlagSet)
+			return
+		case strings.HasSuffix(os.Args[1], "help"):
+			fmt.Println(usage)
+			flag.PrintDefaults()
+			return
+		}
+	}
 
 	// Parse argument flags
 	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
@@ -39,31 +68,6 @@ func main() {
 	responseMode := flag.String("response-mode", "form_post", "OAuth2 response_mode (\"query\" or \"form_post\")")
 
 	flag.Parse()
-
-	if len(os.Args) == 2 {
-		usage := fmt.Sprintf(`Usage of %s:
-  Generate certificate signing request and send the csr to the server.
-  Authenticate user with Open ID Connect protocol and retrieve OAuth Access Token.
-
-Subcommands:
-  version:
-  	Print the version and the pre desined parameters of this CLI.
-  help:
-  	Print this help message.
-
-Options:
-`, appname)
-		switch {
-		case strings.HasSuffix(os.Args[1], "version"):
-			versionFlagSet := flag.NewFlagSet("version", flag.ExitOnError)
-			ExecuteVersionCommand(os.Args[2:], versionFlagSet)
-			return
-		case strings.HasSuffix(os.Args[1], "help"):
-			fmt.Printf(usage)
-			flag.PrintDefaults()
-			return
-		}
-	}
 
 	accesstoken, err := oidc.GetAuthAccessToken(responseMode, debug)
 	if err != nil || accesstoken == "" {
@@ -130,7 +134,7 @@ Options:
 		if *debug {
 			fmt.Printf("Signed certificate:\n%s\n", cert)
 		}
-		err, cacert = signer.GetCrypkiRootCA(*caURL, &map[string][]string{
+		err, cacert = signer.GetCrypkiRootCA(false, *caURL, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
@@ -151,7 +155,7 @@ Options:
 		if *debug {
 			fmt.Printf("Signed certificate:\n%s\n", cert)
 		}
-		err, cacert = signer.GetCFSSLRootCA(*caURL, &map[string][]string{
+		err, cacert = signer.GetCFSSLRootCA(false, *caURL, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
@@ -176,13 +180,13 @@ Options:
 	}
 
 	certDestination := certificate.UserCertPath()
-	err = ioutil.WriteFile(certDestination, []byte(cert), 0600)
+	err = os.WriteFile(certDestination, []byte(cert), 0600)
 	if err != nil {
 		fmt.Printf("Failed to save X.509 certificate to %s: %s", certDestination, err)
 		os.Exit(1)
 	}
 	caCertDestination := certificate.CACertPath()
-	err = ioutil.WriteFile(caCertDestination, []byte(cacert), 0600)
+	err = os.WriteFile(caCertDestination, []byte(cacert), 0600)
 	if err != nil {
 		fmt.Printf("Failed to save X.509 CA certificate to %s: %s", caCertDestination, err)
 		os.Exit(1)

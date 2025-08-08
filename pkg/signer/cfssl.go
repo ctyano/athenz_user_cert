@@ -81,7 +81,7 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 	return nil, response.Result.Certificate
 }
 
-func GetCFSSLRootCA(url string, headers *map[string][]string) (error, string) {
+func GetCFSSLRootCA(test bool, url string, headers *map[string][]string) (error, string) {
 	type RequestBody struct {
 		Label string `json:"label"`
 	}
@@ -119,6 +119,10 @@ func GetCFSSLRootCA(url string, headers *map[string][]string) (error, string) {
 		return fmt.Errorf("Failed to send request: %w", err), ""
 	}
 	defer resp.Body.Close()
+
+	if test && resp.StatusCode == http.StatusUnauthorized {
+		return nil, ""
+	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		body, _ := io.ReadAll(resp.Body) // safe to ignore error for error messages

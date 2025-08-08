@@ -85,7 +85,7 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 	return nil, response.Cert
 }
 
-func GetCrypkiRootCA(url string, headers *map[string][]string) (error, string) {
+func GetCrypkiRootCA(test bool, url string, headers *map[string][]string) (error, string) {
 	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CRYPKI_TIMEOUT))
 	client := &http.Client{
 		Timeout: time.Duration(timeout) * time.Second,
@@ -110,6 +110,10 @@ func GetCrypkiRootCA(url string, headers *map[string][]string) (error, string) {
 		return fmt.Errorf("Failed to send request: %s", err), ""
 	}
 	defer resp.Body.Close()
+
+	if test && resp.StatusCode == http.StatusUnauthorized {
+		return nil, ""
+	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
 		body, _ := io.ReadAll(resp.Body)
