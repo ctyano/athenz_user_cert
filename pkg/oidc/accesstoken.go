@@ -223,6 +223,7 @@ func waitForCodeServer(listenAddress, responseMode string) string {
 }
 
 func GetUserNameFromAccessToken(rawJWT, userNameClaim string) (string, error) {
+	// The JWT signature is not validated here, as the remote server is responsible for validation.
 	token, _, err := new(jwt.Parser).ParseUnverified(rawJWT, jwt.MapClaims{})
 	if err != nil {
 		return "", fmt.Errorf("invalid jwt: %s, error: %s", rawJWT, err)
