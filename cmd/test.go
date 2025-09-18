@@ -60,7 +60,7 @@ func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet) {
 			os.Exit(1)
 		}
 	case "vault":
-		err, _ := signer.GetCFSSLRootCA(true, *caURL, &map[string][]string{})
+		err, _ := signer.GetVaultRootCA(true, *caURL, &map[string][]string{})
 		if err != nil {
 			fmt.Printf("Failed to get ca certificate: %s\n", err)
 			os.Exit(1)
