@@ -165,6 +165,27 @@ Options:
 		if *debug {
 			fmt.Printf("CA certificate:\n%s\n", cacert)
 		}
+	case "vault":
+		err, cert = signer.SendVaultCSR(*commonName, *signerURL, csr, &map[string][]string{
+			"Authorization": []string{"Bearer " + accesstoken},
+		})
+		if err != nil {
+			fmt.Printf("Failed to get signed certificate: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("Signed certificate:\n%s\n", cert)
+		}
+		err, cacert = signer.GetVaultRootCA(false, *caURL, &map[string][]string{
+			"Authorization": []string{"Bearer " + accesstoken},
+		})
+		if err != nil {
+			fmt.Printf("Failed to get ca certificate: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("CA certificate:\n%s\n", cacert)
+		}
 	}
 
 	keyPEM, err := certificate.PrivateKeyToPEM(*key)
