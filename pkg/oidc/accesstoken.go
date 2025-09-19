@@ -45,11 +45,8 @@ func getCachedAccessToken(debug bool) (string, error) {
 	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
 	if expired, err := isCacheFileExpired(accessTokenFile, float64(validity), debug); !expired && err == nil {
 		data, err := os.ReadFile(accessTokenFile)
-		if err != nil {
-			return "", fmt.Errorf("could not read the cache file, error: %v", err)
-		}
-		if expired {
-			return "", fmt.Errorf("access Token has expired")
+		if err != nil || expired {
+			return "", err
 		}
 		return strings.TrimSpace(string(data)), nil
 	} else {
@@ -64,8 +61,10 @@ func isCacheFileExpired(filename string, maxAge float64, debug bool) (bool, erro
 	}
 	delta := time.Since(info.ModTime())
 	// return false if duration exceeds maxAge
-	expired := delta.Minutes() > maxAge
-	return expired, nil
+	if expired := delta.Minutes() > maxAge; expired {
+		return expired, fmt.Errorf("access token has expired")
+	}
+	return false, nil
 }
 
 func createCacheDir(dirname string, debug bool) (bool, error) {
@@ -111,7 +110,7 @@ func GetOIDCDiscovery(debug *bool) (string, string, error) {
 func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 	accessToken, err := getCachedAccessToken(*debug)
 	if *debug && err != nil {
-		fmt.Printf("Failed get cached access token: %s", err)
+		fmt.Printf("Failed get cached access token: %s\n", err)
 	}
 	if accessToken != "" {
 		return accessToken, err
