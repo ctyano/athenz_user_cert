@@ -51,7 +51,7 @@ Options:
 	}
 
 	// Parse argument flags
-	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
+	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"vault\")")
 	signerURL := flag.String("sign-url", "", "Target destination URL to send the certificate sign request (leave it empty to use default)")
 	caURL := flag.String("ca-url", "", "Target destination URL to retrieve the ca certificate (leave it empty to use default)")
 
@@ -115,6 +115,13 @@ Options:
 		if *caURL == "" {
 			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
 		}
+	case "vault":
+		if *signerURL == "" {
+			*signerURL = signer.DEFAULT_SIGNER_VAULT_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_VAULT_CA_URL
+		}
 	}
 	if *debug {
 		fmt.Printf("Signer URL is set as:%s\n", *signerURL)
@@ -157,6 +164,35 @@ Options:
 		}
 		err, cacert = signer.GetCFSSLRootCA(false, *caURL, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
+		})
+		if err != nil {
+			fmt.Printf("Failed to get ca certificate: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("CA certificate:\n%s\n", cacert)
+		}
+	case "vault":
+		err, vaulttoken := signer.GetVaultToken(signer.DEFAULT_SIGNER_VAULT_JWT_LOGIN_URL, signer.DEFAULT_SIGNER_VAULT_JWT_ROLE, accesstoken, nil)
+		if err != nil {
+			fmt.Printf("Failed to get vault token: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("Vault Token retrieved Successfully:\n%s\n", vaulttoken)
+		}
+		err, cert = signer.SendVaultCSR(*commonName, *signerURL, csr, &map[string][]string{
+			"X-Vault-Token": []string{vaulttoken},
+		})
+		if err != nil {
+			fmt.Printf("Failed to get signed certificate: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("Signed certificate:\n%s\n", cert)
+		}
+		err, cacert = signer.GetVaultRootCA(false, *caURL, &map[string][]string{
+			"X-Vault-Token": []string{vaulttoken},
 		})
 		if err != nil {
 			fmt.Printf("Failed to get ca certificate: %s\n", err)
