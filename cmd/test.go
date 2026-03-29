@@ -34,6 +34,13 @@ func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet) {
 		if *caURL == "" {
 			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
 		}
+	case "vault":
+		if *signerURL == "" {
+			*signerURL = signer.DEFAULT_SIGNER_CFSSL_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
+		}
 	}
 	if *debug {
 		fmt.Printf("Signer URL is set as:%s\n", *signerURL)
@@ -48,6 +55,12 @@ func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet) {
 		}
 	case "cfssl":
 		err, _ := signer.GetCFSSLRootCA(true, *caURL, &map[string][]string{})
+		if err != nil {
+			fmt.Printf("Failed to get ca certificate: %s\n", err)
+			os.Exit(1)
+		}
+	case "vault":
+		err, _ := signer.GetVaultRootCA(true, *caURL, &map[string][]string{})
 		if err != nil {
 			fmt.Printf("Failed to get ca certificate: %s\n", err)
 			os.Exit(1)
