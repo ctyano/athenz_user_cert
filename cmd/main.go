@@ -51,9 +51,9 @@ Options:
 	}
 
 	// Parse argument flags
-	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
+	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
 	signerURL := flag.String("sign-url", "", "Target destination URL to send the certificate sign request (leave it empty to use default)")
-	caURL := flag.String("ca-url", "", "Target destination URL to retrieve the ca certificate (leave it empty to use default)")
+	caURL := flag.String("ca-url", "", "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
 
 	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
 	userNameClaim := flag.String("claim", oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM, "JWT Claim Name to extract the user name")
@@ -69,13 +69,23 @@ Options:
 
 	flag.Parse()
 
-	accesstoken, err := oidc.GetAuthAccessToken(responseMode, debug)
+	var accesstoken, attestationData string
+	var err error
+	switch *signerName {
+	case "zts", "vault":
+		attestationData, accesstoken, err = oidc.GetAuthAttestationDataAndAccessToken(responseMode, debug)
+	default:
+		accesstoken, err = oidc.GetAuthAccessToken(responseMode, debug)
+	}
 	if err != nil || accesstoken == "" {
 		fmt.Printf("Failed to get access token: %s\n", err)
 		os.Exit(1)
 	}
 	if *debug {
 		fmt.Printf("Access Token retrieved Successfully:\n%s\n", accesstoken)
+		if attestationData != "" {
+			fmt.Printf("OIDC attestation data:\n%s\n", attestationData)
+		}
 	}
 
 	if *commonName == "" {
@@ -114,6 +124,13 @@ Options:
 		}
 		if *caURL == "" {
 			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
+		}
+	case "zts", "vault":
+		if *signerURL == "" {
+			*signerURL = signer.DEFAULT_SIGNER_ZTS_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_ZTS_CA_URL
 		}
 	}
 	if *debug {
@@ -165,6 +182,23 @@ Options:
 		if *debug {
 			fmt.Printf("CA certificate:\n%s\n", cacert)
 		}
+	case "zts", "vault":
+		err, cert = signer.SendZTSCSR(*commonName, *signerURL, csr, attestationData, *caURL, nil)
+		if err != nil {
+			fmt.Printf("Failed to get signed certificate: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("Signed certificate:\n%s\n", cert)
+		}
+		err, cacert = signer.GetZTSRootCA(false, *caURL, nil)
+		if err != nil {
+			fmt.Printf("Failed to get ca certificate: %s\n", err)
+			os.Exit(1)
+		}
+		if *debug {
+			fmt.Printf("CA certificate:\n%s\n", cacert)
+		}
 	}
 
 	keyPEM, err := certificate.PrivateKeyToPEM(*key)
@@ -186,13 +220,20 @@ Options:
 		os.Exit(1)
 	}
 	caCertDestination := certificate.CACertPath()
-	err = os.WriteFile(caCertDestination, []byte(cacert), 0600)
-	if err != nil {
-		fmt.Printf("Failed to save X.509 CA certificate to %s: %s", caCertDestination, err)
-		os.Exit(1)
+
+	if cacert != "" {
+		err = os.WriteFile(caCertDestination, []byte(cacert), 0600)
+		if err != nil {
+			fmt.Printf("Failed to save X.509 CA certificate to %s: %s", caCertDestination, err)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Printf("Signed Athenz User certificate key is successfully stored at: \t%s\n", keyDestination)
 	fmt.Printf("Signed Athenz User certificate is successfully stored at: \t%s\n", certDestination)
-	fmt.Printf("Signed Athenz CA certificate is successfully stored at: \t%s\n", caCertDestination)
+	if cacert != "" {
+		fmt.Printf("Signed Athenz CA certificate is successfully stored at: \t%s\n", caCertDestination)
+	} else {
+		fmt.Printf("Signed Athenz CA certificate was not updated. Use -ca-url with a local PEM path or CA endpoint if you need to refresh %s\n", caCertDestination)
+	}
 }
