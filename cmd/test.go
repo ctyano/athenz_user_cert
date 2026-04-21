@@ -11,9 +11,9 @@ import (
 func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet) {
 
 	// Parse argument flags
-	signerName := testFlagSet.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\" or \"cfssl\")")
-	signerURL := flag.String("sign-url", "", "Target destination URL to send the certificate sign request (leave it empty to use default)")
-	caURL := flag.String("ca-url", "", "Target destination URL to retrieve the ca certificate (leave it empty to use default)")
+	signerName := testFlagSet.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
+	signerURL := testFlagSet.String("sign-url", "", "Target destination URL to send the certificate sign request (leave it empty to use default)")
+	caURL := testFlagSet.String("ca-url", "", "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
 
 	debug := testFlagSet.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
 
@@ -34,6 +34,13 @@ func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet) {
 		if *caURL == "" {
 			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
 		}
+	case "zts", "vault":
+		if *signerURL == "" {
+			*signerURL = signer.DEFAULT_SIGNER_ZTS_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_ZTS_CA_URL
+		}
 	}
 	if *debug {
 		fmt.Printf("Signer URL is set as:%s\n", *signerURL)
@@ -48,6 +55,12 @@ func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet) {
 		}
 	case "cfssl":
 		err, _ := signer.GetCFSSLRootCA(true, *caURL, &map[string][]string{})
+		if err != nil {
+			fmt.Printf("Failed to get ca certificate: %s\n", err)
+			os.Exit(1)
+		}
+	case "zts", "vault":
+		err, _ := signer.GetZTSRootCA(true, *caURL, &map[string][]string{})
 		if err != nil {
 			fmt.Printf("Failed to get ca certificate: %s\n", err)
 			os.Exit(1)
