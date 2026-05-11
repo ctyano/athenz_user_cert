@@ -135,7 +135,8 @@ jobs:
         # uses: https://github.com/goreleaser/goreleaser-action/tags
         uses: goreleaser/goreleaser-action@v6
         with:
-          version: v7.2.1
+          # https://github.com/goreleaser/goreleaser/tags
+          version: v2.15.4
           args: release
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
