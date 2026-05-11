@@ -90,7 +90,7 @@ jobs:
         id: tag
         if: ${{ env.CURRENT_VERSION != '' && env.VERSION != '' && env.VERSION != env.CURRENT_VERSION }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
         run: |
           set -x
           latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
@@ -99,7 +99,7 @@ jobs:
           patch=$((patch + 1))
           next_version=v$major.$minor.$patch
           git tag -f $next_version
-          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}
+          git remote set-url origin https://x-access-token:${HOMEBREW_TOKEN}@github.com/${{ github.repository }}
           git push -f origin tag $next_version
 
       # This action sets up a go environment for use in actions by:
@@ -135,9 +135,9 @@ jobs:
         # uses: https://github.com/goreleaser/goreleaser-action/tags
         uses: goreleaser/goreleaser-action@v6
         with:
-          version: v1.13.1
+          version: v7.2.1
           args: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: v1.13.1
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
+          VERSION: v7.2.1
 
