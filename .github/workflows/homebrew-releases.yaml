@@ -136,10 +136,13 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           # https://github.com/goreleaser/goreleaser/tags
-          version: v2.15.4
+          # Above v2.0.0 will throw the below error:
+          # only version: 2 configuration files are supported, yours is version: 0, please update your configuration
+          version: v1.26.2
           args: release
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
           # https://github.com/goreleaser/goreleaser/tags
-          VERSION: v2.15.4
+          VERSION: v1.26.2
+
 
