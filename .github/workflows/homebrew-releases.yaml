@@ -139,5 +139,6 @@ jobs:
           args: release
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
-          VERSION: v7.2.1
+          # https://github.com/goreleaser/goreleaser/tags
+          VERSION: v2.15.4
 
