@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,11 +67,13 @@ func newZTSHTTPClient(trustSource string) (*http.Client, error) {
 
 	caPEM, err := readZTSRootCA(trustSource)
 	if err != nil {
-		return nil, err
+		if !(errors.Is(err, os.ErrNotExist) && strings.TrimSpace(trustSource) == strings.TrimSpace(DEFAULT_SIGNER_ZTS_CA_URL)) {
+			return nil, err
+		}
 	}
 	if caPEM == "" && strings.TrimSpace(trustSource) != strings.TrimSpace(DEFAULT_SIGNER_ZTS_CA_URL) {
 		caPEM, err = readZTSRootCA(DEFAULT_SIGNER_ZTS_CA_URL)
-		if err != nil && !os.IsNotExist(err) {
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
 	}
@@ -166,7 +169,7 @@ func GetZTSRootCA(test bool, source string, headers *map[string][]string) (error
 		return nil, caPEM
 	}
 	if err != nil {
-		if test && os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) && (test || strings.TrimSpace(source) == strings.TrimSpace(DEFAULT_SIGNER_ZTS_CA_URL)) {
 			return nil, ""
 		}
 		return err, ""
@@ -215,14 +218,25 @@ func GetZTSRootCA(test bool, source string, headers *map[string][]string) (error
 		return fmt.Errorf("Failed to read response body: %w", err), ""
 	}
 
+	caPEM, err = parseZTSRootCAResponse(body, source, test)
+	if err != nil {
+		return err, ""
+	}
+
+	return nil, caPEM
+}
+
+func parseZTSRootCAResponse(body []byte, source string, test bool) (string, error) {
 	rawBody := strings.TrimSpace(string(body))
 	if strings.HasPrefix(rawBody, "-----BEGIN CERTIFICATE-----") {
-		return nil, rawBody
+		return rawBody, nil
 	}
 
 	var response struct {
 		X509CertificateSigner string `json:"x509CertificateSigner"`
+		CACertBundle          string `json:"caCertBundle"`
 		CACertificates        string `json:"caCertificates"`
+		Certs                 string `json:"certs"`
 		Certificate           string `json:"certificate"`
 		Cert                  string `json:"cert"`
 		Result                struct {
@@ -232,25 +246,29 @@ func GetZTSRootCA(test bool, source string, headers *map[string][]string) (error
 
 	if err := json.Unmarshal(body, &response); err != nil {
 		if test {
-			return nil, ""
+			return "", nil
 		}
-		return fmt.Errorf("Failed to parse JSON response: %w", err), ""
+		return "", fmt.Errorf("Failed to parse JSON response: %w", err)
 	}
 
 	switch {
 	case strings.TrimSpace(response.X509CertificateSigner) != "":
-		return nil, response.X509CertificateSigner
+		return response.X509CertificateSigner, nil
+	case strings.TrimSpace(response.CACertBundle) != "":
+		return response.CACertBundle, nil
 	case strings.TrimSpace(response.CACertificates) != "":
-		return nil, response.CACertificates
+		return response.CACertificates, nil
+	case strings.TrimSpace(response.Certs) != "":
+		return response.Certs, nil
 	case strings.TrimSpace(response.Certificate) != "":
-		return nil, response.Certificate
+		return response.Certificate, nil
 	case strings.TrimSpace(response.Cert) != "":
-		return nil, response.Cert
+		return response.Cert, nil
 	case strings.TrimSpace(response.Result.Certificate) != "":
-		return nil, response.Result.Certificate
+		return response.Result.Certificate, nil
 	case test:
-		return nil, ""
+		return "", nil
 	default:
-		return fmt.Errorf("No CA certificate bundle found in response from %s", source), ""
+		return "", fmt.Errorf("No CA certificate bundle found in response from %s", source)
 	}
 }
