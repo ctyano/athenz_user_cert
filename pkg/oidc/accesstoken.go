@@ -2,6 +2,8 @@ package oidc
 
 import (
 	"bufio"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -125,12 +127,15 @@ type authCodeResult struct {
 }
 
 type oauthConfig struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURL  string
-	Scopes       []string
-	AuthURL      string
-	TokenURL     string
+	ClientID      string
+	ClientSecret  string
+	RedirectURL   string
+	Scopes        []string
+	AuthURL       string
+	TokenURL      string
+	ResponseType  string
+	CodeVerifier  string
+	CodeChallenge string
 }
 
 func buildOAuthConfig(authURL, tokenURL string) *oauthConfig {
@@ -141,7 +146,31 @@ func buildOAuthConfig(authURL, tokenURL string) *oauthConfig {
 		Scopes:       strings.Split(DEFAULT_OIDC_SCOPES, " "),
 		AuthURL:      authURL,
 		TokenURL:     tokenURL,
+		ResponseType: "code",
 	}
+}
+
+func buildPKCEOAuthConfig(authURL, tokenURL string) (*oauthConfig, error) {
+	conf := buildOAuthConfig(authURL, tokenURL)
+	codeVerifier, codeChallenge, err := generatePKCEParameters()
+	if err != nil {
+		return nil, err
+	}
+	conf.CodeVerifier = codeVerifier
+	conf.CodeChallenge = codeChallenge
+	return conf, nil
+}
+
+func generatePKCEParameters() (string, string, error) {
+	verifierBytes := make([]byte, 32)
+	if _, err := rand.Read(verifierBytes); err != nil {
+		return "", "", fmt.Errorf("failed to generate PKCE verifier: %v", err)
+	}
+
+	codeVerifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
+	sum := sha256.Sum256([]byte(codeVerifier))
+	codeChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	return codeVerifier, codeChallenge, nil
 }
 
 func buildAuthCodeURL(conf *oauthConfig, responseMode string) (string, error) {
@@ -153,12 +182,20 @@ func buildAuthCodeURL(conf *oauthConfig, responseMode string) (string, error) {
 	query := authURL.Query()
 	query.Set("client_id", conf.ClientID)
 	query.Set("redirect_uri", conf.RedirectURL)
-	query.Set("response_type", "code")
+	responseType := strings.TrimSpace(conf.ResponseType)
+	if responseType == "" {
+		responseType = "code"
+	}
+	query.Set("response_type", responseType)
 	query.Set("scope", strings.Join(conf.Scopes, " "))
 	query.Set("state", "state")
 	query.Set("access_type", "offline")
 	if responseMode != "" {
 		query.Set("response_mode", responseMode)
+	}
+	if conf.CodeChallenge != "" {
+		query.Set("code_challenge", conf.CodeChallenge)
+		query.Set("code_challenge_method", "S256")
 	}
 	authURL.RawQuery = query.Encode()
 	return authURL.String(), nil
@@ -172,6 +209,9 @@ func exchangeAuthCode(conf *oauthConfig, code string) (string, error) {
 	form.Set("client_id", conf.ClientID)
 	if conf.ClientSecret != "" {
 		form.Set("client_secret", conf.ClientSecret)
+	}
+	if conf.CodeVerifier != "" {
+		form.Set("code_verifier", conf.CodeVerifier)
 	}
 
 	req, err := http.NewRequest(http.MethodPost, conf.TokenURL, strings.NewReader(form.Encode()))
@@ -267,24 +307,48 @@ func getAuthCodeResult(conf *oauthConfig, responseMode *string) (authCodeResult,
 	return authCodeResult{}, fmt.Errorf("failed to read authorization response")
 }
 
-func GetAuthAttestationDataAndAccessToken(responseMode *string, debug *bool) (string, string, error) {
+func buildAttestationData(result authCodeResult, codeVerifier string) string {
+	values, err := url.ParseQuery(strings.TrimSpace(result.AttestationData))
+	if err != nil || values.Get("code") == "" {
+		values = url.Values{}
+		values.Set("code", result.Code)
+	}
+	if codeVerifier != "" {
+		values.Set("code_verifier", codeVerifier)
+	}
+	return values.Encode()
+}
+
+func GetAuthAttestationData(responseMode *string, debug *bool) (string, error) {
 	authURL, tokenURL, err := GetOIDCDiscovery(debug)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 
-	conf := buildOAuthConfig(authURL, tokenURL)
+	conf, err := buildPKCEOAuthConfig(authURL, tokenURL)
+	if err != nil {
+		return "", err
+	}
 	authResult, err := getAuthCodeResult(conf, responseMode)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 
-	accessToken, err := exchangeAuthCode(conf, authResult.Code)
+	return buildAttestationData(authResult, conf.CodeVerifier), nil
+}
+
+func GetAuthAttestationDataAndAccessToken(responseMode *string, debug *bool) (string, string, error) {
+	accessToken, err := GetAuthAccessToken(responseMode, debug)
 	if err != nil {
 		return "", "", err
 	}
 
-	return authResult.AttestationData, accessToken, nil
+	attestationData, err := GetAuthAttestationData(responseMode, debug)
+	if err != nil {
+		return "", "", err
+	}
+
+	return attestationData, accessToken, nil
 }
 
 func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
@@ -301,7 +365,10 @@ func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 		return "", err
 	}
 
-	conf := buildOAuthConfig(authURL, tokenURL)
+	conf, err := buildPKCEOAuthConfig(authURL, tokenURL)
+	if err != nil {
+		return "", err
+	}
 	authResult, err := getAuthCodeResult(conf, responseMode)
 	if err != nil {
 		return "", err

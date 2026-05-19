@@ -73,16 +73,29 @@ Options:
 	var err error
 	switch *signerName {
 	case "zts":
-		attestationData, accesstoken, err = oidc.GetAuthAttestationDataAndAccessToken(responseMode, debug)
+		if *commonName == "" {
+			accesstoken, err = oidc.GetAuthAccessToken(responseMode, debug)
+			if err != nil || accesstoken == "" {
+				fmt.Printf("Failed to get access token: %s\n", err)
+				os.Exit(1)
+			}
+		}
+		attestationData, err = oidc.GetAuthAttestationData(responseMode, debug)
+		if err != nil || attestationData == "" {
+			fmt.Printf("Failed to get OIDC attestation data: %s\n", err)
+			os.Exit(1)
+		}
 	default:
 		accesstoken, err = oidc.GetAuthAccessToken(responseMode, debug)
-	}
-	if err != nil || accesstoken == "" {
-		fmt.Printf("Failed to get access token: %s\n", err)
-		os.Exit(1)
+		if err != nil || accesstoken == "" {
+			fmt.Printf("Failed to get access token: %s\n", err)
+			os.Exit(1)
+		}
 	}
 	if *debug {
-		fmt.Printf("Access Token retrieved Successfully:\n%s\n", accesstoken)
+		if accesstoken != "" {
+			fmt.Printf("Access Token retrieved Successfully:\n%s\n", accesstoken)
+		}
 		if attestationData != "" {
 			fmt.Printf("OIDC attestation data:\n%s\n", attestationData)
 		}
