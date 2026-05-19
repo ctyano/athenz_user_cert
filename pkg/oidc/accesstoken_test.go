@@ -3,6 +3,7 @@ package oidc
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -78,6 +79,93 @@ func TestBuildAuthCodeURLIncludesPKCE(t *testing.T) {
 	}
 	if got := values.Get("code_challenge_method"); got != "S256" {
 		t.Fatalf("expected code_challenge_method=S256, got %q", got)
+	}
+}
+
+func TestParseAuthInputHandlesFullCallbackURL(t *testing.T) {
+	result, err := parseAuthInput("http://127.0.0.1:8080/?code=test-code&state=test-state")
+	if err != nil {
+		t.Fatalf("parseAuthInput returned error: %v", err)
+	}
+
+	if result.Code != "test-code" {
+		t.Fatalf("expected code to be parsed from callback URL, got %q", result.Code)
+	}
+	if result.AttestationData != "code=test-code&state=test-state" {
+		t.Fatalf("expected attestation data to contain raw query params, got %q", result.AttestationData)
+	}
+}
+
+func TestBuildAuthAttestationDataAndAccessTokenUsesCachedToken(t *testing.T) {
+	conf := &oauthConfig{CodeVerifier: "test-verifier"}
+	authResult := authCodeResult{
+		Code:            "test-code",
+		AttestationData: "code=test-code&state=test-state",
+	}
+
+	exchangeCalled := false
+	attestationData, accessToken, err := buildAuthAttestationDataAndAccessToken(conf, authResult, "cached-token", func(*oauthConfig, string) (string, error) {
+		exchangeCalled = true
+		return "", errors.New("exchange should not be called when cached token is available")
+	})
+	if err != nil {
+		t.Fatalf("buildAuthAttestationDataAndAccessToken returned error: %v", err)
+	}
+	if exchangeCalled {
+		t.Fatal("expected cached token path to skip token exchange")
+	}
+	if accessToken != "cached-token" {
+		t.Fatalf("expected cached access token to be reused, got %q", accessToken)
+	}
+
+	values, err := url.ParseQuery(attestationData)
+	if err != nil {
+		t.Fatalf("failed to parse attestation data: %v", err)
+	}
+	if got := values.Get("code_verifier"); got != "test-verifier" {
+		t.Fatalf("expected code_verifier to be preserved, got %q", got)
+	}
+}
+
+func TestBuildAuthAttestationDataAndAccessTokenExchangesCodeWhenCacheMissing(t *testing.T) {
+	conf := &oauthConfig{CodeVerifier: "test-verifier"}
+	authResult := authCodeResult{
+		Code:            "test-code",
+		AttestationData: "code=test-code&state=test-state",
+	}
+
+	attestationData, accessToken, err := buildAuthAttestationDataAndAccessToken(conf, authResult, "", func(gotConf *oauthConfig, code string) (string, error) {
+		if gotConf != conf {
+			t.Fatal("expected exchange to receive the original oauth config")
+		}
+		if code != "test-code" {
+			t.Fatalf("expected exchange to receive auth code, got %q", code)
+		}
+		return "fresh-token", nil
+	})
+	if err != nil {
+		t.Fatalf("buildAuthAttestationDataAndAccessToken returned error: %v", err)
+	}
+	if accessToken != "fresh-token" {
+		t.Fatalf("expected exchanged access token, got %q", accessToken)
+	}
+
+	values, err := url.ParseQuery(attestationData)
+	if err != nil {
+		t.Fatalf("failed to parse attestation data: %v", err)
+	}
+	if got := values.Get("code_verifier"); got != "test-verifier" {
+		t.Fatalf("expected code_verifier to be added, got %q", got)
+	}
+}
+
+func TestParseAccessTokenResponseRejectsMissingAccessToken(t *testing.T) {
+	_, err := parseAccessTokenResponse(strings.NewReader(`{"token_type":"Bearer"}`))
+	if err == nil {
+		t.Fatal("expected missing access_token to return an error")
+	}
+	if !strings.Contains(err.Error(), "access_token") {
+		t.Fatalf("expected missing access_token error, got %v", err)
 	}
 }
 

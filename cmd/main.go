@@ -74,16 +74,17 @@ Options:
 	switch *signerName {
 	case "zts":
 		if *commonName == "" {
-			accesstoken, err = oidc.GetAuthAccessToken(responseMode, debug)
-			if err != nil || accesstoken == "" {
-				fmt.Printf("Failed to get access token: %s\n", err)
+			attestationData, accesstoken, err = oidc.GetAuthAttestationDataAndAccessToken(responseMode, debug)
+			if err != nil || accesstoken == "" || attestationData == "" {
+				fmt.Printf("Failed to get OIDC authentication data: %s\n", err)
 				os.Exit(1)
 			}
-		}
-		attestationData, err = oidc.GetAuthAttestationData(responseMode, debug)
-		if err != nil || attestationData == "" {
-			fmt.Printf("Failed to get OIDC attestation data: %s\n", err)
-			os.Exit(1)
+		} else {
+			attestationData, err = oidc.GetAuthAttestationData(responseMode, debug)
+			if err != nil || attestationData == "" {
+				fmt.Printf("Failed to get OIDC attestation data: %s\n", err)
+				os.Exit(1)
+			}
 		}
 	default:
 		accesstoken, err = oidc.GetAuthAccessToken(responseMode, debug)

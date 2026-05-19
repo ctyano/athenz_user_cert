@@ -291,14 +291,10 @@ func exchangeAuthCode(conf *oauthConfig, code string) (string, error) {
 		return "", fmt.Errorf("token exchange failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 
-	var token struct {
-		AccessToken string `json:"access_token"`
+	accessToken, err := parseAccessTokenResponse(resp.Body)
+	if err != nil {
+		return "", err
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
-		return "", fmt.Errorf("failed to parse token response: %v", err)
-	}
-
-	accessToken := token.AccessToken
 	if accessToken != "" {
 		accessTokenFilePath := getAccessTokenCachePath()
 		createCacheDir(filepath.Dir(accessTokenFilePath), false)
@@ -308,6 +304,20 @@ func exchangeAuthCode(conf *oauthConfig, code string) (string, error) {
 		}
 	}
 	return accessToken, nil
+}
+
+func parseAccessTokenResponse(body io.Reader) (string, error) {
+	var token struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(body).Decode(&token); err != nil {
+		return "", fmt.Errorf("failed to parse token response: %v", err)
+	}
+	if token.AccessToken == "" {
+		return "", fmt.Errorf("token response did not include access_token")
+	}
+
+	return token.AccessToken, nil
 }
 
 func parseAuthInput(raw string) (authCodeResult, error) {
@@ -322,6 +332,25 @@ func parseAuthInput(raw string) (authCodeResult, error) {
 			Code:            values.Get("code"),
 			AttestationData: raw,
 		}, nil
+	}
+
+	parsedURL, err := url.Parse(raw)
+	if err == nil {
+		switch {
+		case parsedURL.Query().Get("code") != "":
+			return authCodeResult{
+				Code:            parsedURL.Query().Get("code"),
+				AttestationData: parsedURL.RawQuery,
+			}, nil
+		case parsedURL.Fragment != "":
+			values, err := url.ParseQuery(parsedURL.Fragment)
+			if err == nil && values.Get("code") != "" {
+				return authCodeResult{
+					Code:            values.Get("code"),
+					AttestationData: parsedURL.Fragment,
+				}, nil
+			}
+		}
 	}
 
 	return authCodeResult{
@@ -379,6 +408,20 @@ func buildAttestationData(result authCodeResult, codeVerifier string) string {
 	return values.Encode()
 }
 
+func buildAuthAttestationDataAndAccessToken(conf *oauthConfig, authResult authCodeResult, cachedAccessToken string, exchange func(*oauthConfig, string) (string, error)) (string, string, error) {
+	attestationData := buildAttestationData(authResult, conf.CodeVerifier)
+	if cachedAccessToken != "" {
+		return attestationData, cachedAccessToken, nil
+	}
+
+	accessToken, err := exchange(conf, authResult.Code)
+	if err != nil {
+		return "", "", err
+	}
+
+	return attestationData, accessToken, nil
+}
+
 func GetAuthAttestationData(responseMode *string, debug *bool) (string, error) {
 	authURL, tokenURL, err := GetOIDCDiscovery(debug)
 	if err != nil {
@@ -398,17 +441,29 @@ func GetAuthAttestationData(responseMode *string, debug *bool) (string, error) {
 }
 
 func GetAuthAttestationDataAndAccessToken(responseMode *string, debug *bool) (string, string, error) {
-	accessToken, err := GetAuthAccessToken(responseMode, debug)
+	accessToken, err := getCachedAccessToken(*debug)
+	if *debug && err != nil {
+		fmt.Printf("Failed get cached access token: %s\n", err)
+	}
+	if err != nil {
+		accessToken = ""
+	}
+
+	authURL, tokenURL, err := GetOIDCDiscovery(debug)
 	if err != nil {
 		return "", "", err
 	}
 
-	attestationData, err := GetAuthAttestationData(responseMode, debug)
+	conf, err := buildPKCEOAuthConfig(authURL, tokenURL)
+	if err != nil {
+		return "", "", err
+	}
+	authResult, err := getAuthCodeResult(conf, responseMode)
 	if err != nil {
 		return "", "", err
 	}
 
-	return attestationData, accessToken, nil
+	return buildAuthAttestationDataAndAccessToken(conf, authResult, accessToken, exchangeAuthCode)
 }
 
 func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
