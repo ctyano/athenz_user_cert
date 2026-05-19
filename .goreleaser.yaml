@@ -1,10 +1,11 @@
 ---
+project_name: athenz-user-cert
 # https://github.com/goreleaser/goreleaser/blob/v1.13.1/www/docs/customization/build.md
 builds:
-  - id: "athenz_user_cert"
+  - id: "athenz-user-cert"
     dir: .
     main: ./cmd
-    binary: athenz_user_cert
+    binary: athenzusercert
     ignore:
       - goos: darwin
         goarch: 386
@@ -24,12 +25,12 @@ archives:
 brews:
   - tap:
       owner: ctyano
-      name: athenz_user_cert
+      name: athenz-user-cert
+    name: athenz-user-cert
     folder: Formula
-    homepage: https://github.com/ctyano/athenz_user_cert
+    homepage: https://github.com/ctyano/athenz-user-cert
     description: CLI to retrieve Athenz-compatible User Certificate
     ids:
       - homebrew
     test: |
-      system "#{bin}/athenz_user_cert version"
-
+      system "#{bin}/athenzusercert version"

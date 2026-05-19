@@ -1,6 +1,6 @@
 *.backup
 go.sum
-athenz_user_cert
+athenzusercert
 dist
 coverage.*
 .gocache

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ctyano/athenz_user_cert/pkg/signer"
+	"github.com/ctyano/athenz-user-cert/pkg/signer"
 )
 
 func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet) {

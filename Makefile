@@ -1,5 +1,9 @@
 ifeq ($(APP_NAME),)
-APP_NAME := $(shell basename $(shell pwd))
+APP_NAME := athenz-user-cert
+endif
+
+ifeq ($(BINARY_NAME),)
+BINARY_NAME := athenzusercert
 endif
 
 ifeq ($(APP_REPO_OWNER),)
@@ -104,14 +108,14 @@ endif
 .PHONY: go-build go-test go-clean
 
 go-build:
-	@echo "Building $(APP_NAME)..."
+	@echo "Building $(BINARY_NAME)..."
 	go mod tidy
-	CGO_ENABLED=1 go build $(LDFLAGS) -o $(GOPATH)/bin/$(APP_NAME) cmd/*.go
+	CGO_ENABLED=1 go build $(LDFLAGS) -o $(GOPATH)/bin/$(BINARY_NAME) cmd/*.go
 
 go-cross-build:
-	@echo "Cross Building $(APP_NAME) for $(GOOS)/$(GOARCH)..."
+	@echo "Cross Building $(BINARY_NAME) for $(GOOS)/$(GOARCH)..."
 	go mod tidy
-	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go build $(LDFLAGS) -o $(GOPATH)/bin/$(GOOS)_$(GOARCH)/$(APP_NAME) cmd/*.go
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go build $(LDFLAGS) -o $(GOPATH)/bin/$(GOOS)_$(GOARCH)/$(BINARY_NAME) cmd/*.go
 
 go-test:
 	@echo "Testing..."
@@ -220,4 +224,3 @@ install-kustomize: install-pathman
 && ~/.local/bin/pathman add ~/.local/bin)
 
 install-parsers: install-jq install-yq install-step
-

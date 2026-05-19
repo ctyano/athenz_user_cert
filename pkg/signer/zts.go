@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ctyano/athenz_user_cert/pkg/certificate"
+	"github.com/ctyano/athenz-user-cert/pkg/certificate"
 )
 
 var (

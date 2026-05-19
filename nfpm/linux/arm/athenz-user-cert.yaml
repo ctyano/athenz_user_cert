@@ -1,5 +1,5 @@
 # https://nfpm.goreleaser.com/configuration/
-name: athenz_user_cert
+name: athenz-user-cert
 description: Package for Athenz User Cert CLI
 maintainer: ctyano <ctyano@duck.com>
 vendor: ctyano
@@ -12,5 +12,5 @@ version_schema: semver
 suggests:
   - openssl
 contents:
-  - src: athenz_user_cert_arm/usr/bin/athenz_user_cert
-    dst: /usr/local/bin/athenz_user_cert
+  - src: athenz-user-cert_arm/usr/bin/athenzusercert
+    dst: /usr/local/bin/athenzusercert

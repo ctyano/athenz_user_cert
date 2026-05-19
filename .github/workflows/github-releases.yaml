@@ -23,10 +23,10 @@ env:
   # DOCKER_REGISTRY_TOKEN: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
   DOCKER_TAEGET_PLATFORMS: linux/amd64,linux/arm64
   # DOCKER_BUILD_ARGS: |
-  NFPM_SOURCE_IMAGES: athenz_user_cert
+  NFPM_SOURCE_IMAGES: athenz-user-cert
   NFPM_TARGET_PACKAGER: apk,deb,rpm
-  NFPM_TARGET_COMPONENTS: athenz_user_cert
-  GITHUB_REPOSITORY: ctyano/athenz_user_cert
+  NFPM_TARGET_COMPONENTS: athenz-user-cert
+  GITHUB_REPOSITORY: ctyano/athenz-user-cert
   TARBALL_TAEGET_PLATFORMS: darwin/amd64,darwin/arm64
   #TRACKING_GIT_REPO: AthenZ/athenz
 
@@ -215,4 +215,3 @@ jobs:
               --data-binary @$file \
               "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/$release_id/assets?name=$(basename $file)"
           done
-

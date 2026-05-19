@@ -7,13 +7,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ctyano/athenz_user_cert/pkg/certificate"
-	"github.com/ctyano/athenz_user_cert/pkg/oidc"
-	"github.com/ctyano/athenz_user_cert/pkg/signer"
+	"github.com/ctyano/athenz-user-cert/pkg/certificate"
+	"github.com/ctyano/athenz-user-cert/pkg/oidc"
+	"github.com/ctyano/athenz-user-cert/pkg/signer"
 )
 
 var (
-	DEFAULT_APP_NAME    = "athenz_user_cert"
+	DEFAULT_APP_NAME    = "athenzusercert"
 	DEFAULT_SIGNER_NAME = "crypki"
 )
 
