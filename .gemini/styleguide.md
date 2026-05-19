@@ -2,8 +2,8 @@
 
 ## Introduction
 
-This style guide outlines the coding conventions for athenz_user_cert.
-This repository provides golang CLI to intract with theparanoids/crypki or cfssl/cfssl through certisigner-envoy proxy to issue Athenz-compatible X.509 certificate for user authentication.
+This style guide outlines the coding conventions for athenz-user-cert.
+This repository provides the `athenzusercert` Go CLI to interact with theparanoids/crypki or cfssl/cfssl through certisigner-envoy proxy to issue Athenz-compatible X.509 certificate for user authentication.
 The repository does not yet run GitHub Action workflows to run entire Athenz ecosystem to reproduce Athenz use cases on the cloud environments like Kubernetes(with KinD), Docker, or Linux.
 The workflows builds the CLI and assembles as a Homebrew formula and publish it as a brew tap repository using goreleaser.
 
@@ -28,4 +28,3 @@ When reviewing Pull Requests, follow the details and produce a structured summar
 7. **Reviewer Checklist** – A bullet-list of followup questions or checkpoints for humans: e.g., “Does this require version bump?”, “Need documentation update?”, “Tested on x86_64 and arm64?”, etc.
 
 Use concise, technical language, formatted with markdown headings, bullet lists, and bold labels. If context from the athenz-distribution repository matters (e.g., Makefile targets, container images, pkg formats), weave it in where relevant.
-

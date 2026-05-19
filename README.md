@@ -1,12 +1,12 @@
-# athenz_user_cert
+# athenz-user-cert
 
 This is an unofficial repository to provide tools, packages and instructions for [Athenz](https://www.athenz.io).
 
 It is currently owned and maintained by [ctyano](https://github.com/ctyano).
 
-The `athenz_user_cert` interacts with an OAuth 2.0 Identity Provider to obtain an OAuth access token.  
-It then communicates with the Certificate Signer API (e.g., [certsigner-envoy](https://github.com/ctyano/certsigner-envoy)) to retrieve an X.509 certificate.  
-This certificate is compatible with Athenz and can be used to authenticate the user.  
+The `athenzusercert` CLI interacts with an OAuth 2.0 Identity Provider to obtain an OAuth access token.
+It then communicates with the Certificate Signer API (e.g., [certsigner-envoy](https://github.com/ctyano/certsigner-envoy)) to retrieve an X.509 certificate.
+This certificate is compatible with Athenz and can be used to authenticate the user.
 
 ## How it works
 
@@ -15,26 +15,25 @@ This certificate is compatible with Athenz and can be used to authenticate the u
 ## How to install
 
 ```
-brew tap ctyano/athenz_user_cert https://github.com/ctyano/athenz_user_cert
+brew tap ctyano/athenz-user-cert https://github.com/ctyano/athenz-user-cert
 ```
 
 ```
-brew install ctyano/athenz_user_cert/athenz_user_cert
+brew install ctyano/athenz-user-cert/athenz-user-cert
 ```
 
 ## List of Distributions
 
 ### Docker(OCI) Image
 
-[athenz_user_cert](https://github.com/users/ctyano/packages/container/package/athenz_user_cert)
+[athenz-user-cert](https://github.com/users/ctyano/packages/container/package/athenz-user-cert)
 
 ### Executable binaries
 
-https://github.com/ctyano/athenz_user_cert/releases
+https://github.com/ctyano/athenz-user-cert/releases
 
 ## How to build
 
 ```
 make
 ```
-

@@ -4,8 +4,8 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/ctyano/athenz_user_cert/pkg/oidc"
-	"github.com/ctyano/athenz_user_cert/pkg/signer"
+	"github.com/ctyano/athenz-user-cert/pkg/oidc"
+	"github.com/ctyano/athenz-user-cert/pkg/signer"
 )
 
 var (

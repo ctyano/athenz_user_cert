@@ -13,7 +13,7 @@ class AthenzUserCert < Formula
       sha256 "12e2e25fa46cf5d3106b56d5c21d24446d534fb3a7f17c607641a1b179c1a4c4"
 
       def install
-        bin.install "athenz_user_cert"
+        bin.install "athenzusercert"
       end
     end
     on_arm do
@@ -21,7 +21,7 @@ class AthenzUserCert < Formula
       sha256 "a67a6f4faf23d45d8b88c05707b1024a95e042af4c7741e3d1f4b237b82f8bd0"
 
       def install
-        bin.install "athenz_user_cert"
+        bin.install "athenzusercert"
       end
     end
   end
@@ -33,7 +33,7 @@ class AthenzUserCert < Formula
         sha256 "dbc70118e83d971ed3a11b35cb672589e5d1079f22125ad7782cd7a5ad8084fa"
 
         def install
-          bin.install "athenz_user_cert"
+          bin.install "athenzusercert"
         end
       end
     end
@@ -43,13 +43,13 @@ class AthenzUserCert < Formula
         sha256 "24372b5001f576715bb4b680684e882249a612cf9893eebbc82d6af93844fe3b"
 
         def install
-          bin.install "athenz_user_cert"
+          bin.install "athenzusercert"
         end
       end
     end
   end
 
   test do
-    system "#{bin}/athenz_user_cert version"
+    system "#{bin}/athenzusercert version"
   end
 end
