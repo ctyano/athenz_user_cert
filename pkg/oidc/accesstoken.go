@@ -2,9 +2,16 @@ package oidc
 
 import (
 	"bufio"
-	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,10 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	oidc "github.com/coreos/go-oidc"
-	jwt "github.com/golang-jwt/jwt/v5"
-	"golang.org/x/oauth2"
 )
 
 var (
@@ -25,15 +28,8 @@ var (
 	DEFAULT_OIDC_SCOPES                = "openid email profile"
 	DEFAULT_OIDC_LISTEN_ADDRESS        = ":8080"
 	DEFAULT_OIDC_ACCESS_TOKEN_PATH     = ".athenz/.accesstoken"
-	DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY = "30" // in minutes
 	DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM = "name"
 )
-
-type FileUtil interface {
-	isCacheFileExpired(filename string, maxage float64) bool
-	createCacheDir(dirname string) bool
-	getCachedAccessToken() string
-}
 
 func getAccessTokenCachePath() string {
 	h, _ := os.UserHomeDir()
@@ -42,33 +38,99 @@ func getAccessTokenCachePath() string {
 
 func getCachedAccessToken(debug bool) (string, error) {
 	accessTokenFile := getAccessTokenCachePath()
-	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
-	if expired, err := isCacheFileExpired(accessTokenFile, float64(validity), debug); !expired && err == nil {
-		data, err := os.ReadFile(accessTokenFile)
-		if err != nil {
-			return "", fmt.Errorf("could not read the cache file, error: %v", err)
-		}
-		if expired {
-			return "", fmt.Errorf("access Token has expired")
-		}
-		return strings.TrimSpace(string(data)), nil
-	} else {
-		return "", fmt.Errorf("could not check the cache file, error: %v", err)
-	}
-}
-
-func isCacheFileExpired(filename string, maxAge float64, debug bool) (bool, error) {
-	info, err := os.Stat(filename)
+	data, err := os.ReadFile(accessTokenFile)
 	if err != nil {
-		return false, fmt.Errorf("could not read the cache file, error: %v", err)
+		return "", fmt.Errorf("could not read the cache file, error: %v", err)
 	}
-	delta := time.Since(info.ModTime())
-	// return false if duration exceeds maxAge
-	expired := delta.Minutes() > maxAge
-	return expired, nil
+
+	accessToken := strings.TrimSpace(string(data))
+	if accessToken == "" {
+		return "", fmt.Errorf("cached access token is empty")
+	}
+
+	expired, err := isAccessTokenExpired(accessToken, debug)
+	if err != nil {
+		return "", err
+	}
+	if expired {
+		return "", fmt.Errorf("access token has expired")
+	}
+
+	return accessToken, nil
 }
 
-func createCacheDir(dirname string, debug bool) (bool, error) {
+func isAccessTokenExpired(accessToken string, debug bool) (bool, error) {
+	expiry, err := getJWTExpiry(accessToken)
+	if err != nil {
+		return false, fmt.Errorf("could not parse cached access token: %v", err)
+	}
+
+	if debug {
+		fmt.Printf("Cached access token expires at %s\n", expiry.UTC().Format(time.RFC3339))
+	}
+
+	return !time.Now().Before(expiry), nil
+}
+
+func getJWTExpiry(rawJWT string) (time.Time, error) {
+	claims, err := parseJWTClaims(rawJWT)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	expClaim, ok := claims["exp"]
+	if !ok {
+		return time.Time{}, fmt.Errorf("no exp claim in jwt")
+	}
+
+	expUnix, err := parseJWTNumericDate(expClaim)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid exp claim in jwt: %v", err)
+	}
+
+	return time.Unix(expUnix, 0), nil
+}
+
+func parseJWTClaims(rawJWT string) (map[string]any, error) {
+	parts := strings.Split(rawJWT, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid jwt: expected 3 parts, got %d", len(parts))
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid jwt payload encoding: %w", err)
+	}
+
+	claims := map[string]any{}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("invalid jwt payload: %s", err)
+	}
+
+	return claims, nil
+}
+
+func parseJWTNumericDate(value any) (int64, error) {
+	switch v := value.(type) {
+	case float64:
+		if v != float64(int64(v)) {
+			return 0, fmt.Errorf("unexpected non-integer value %v", v)
+		}
+		return int64(v), nil
+	case json.Number:
+		return v.Int64()
+	case int64:
+		return v, nil
+	case int:
+		return int64(v), nil
+	case string:
+		return strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	default:
+		return 0, fmt.Errorf("unexpected type %T", value)
+	}
+}
+
+func createCacheDir(dirname string, debug bool) error {
 	if debug {
 		fmt.Printf("Checking if directory %s exists...\n", dirname)
 	}
@@ -78,109 +140,190 @@ func createCacheDir(dirname string, debug bool) (bool, error) {
 		}
 		err := os.MkdirAll(dirname, 0755)
 		if err != nil {
-			return false, fmt.Errorf("failed to create directory: %v", err)
+			return fmt.Errorf("failed to create directory: %v", err)
 		}
 	} else if err != nil {
-		return false, fmt.Errorf("failed to check directory: %v", err)
+		return fmt.Errorf("failed to check directory: %v", err)
 	} else {
 		if debug {
 			fmt.Printf("the cache directory %s exists.\n", dirname)
 		}
 	}
-	return true, nil
+	return nil
 }
 
 func GetOIDCDiscovery(debug *bool) (string, string, error) {
-	ctx := context.Background()
-	provider, err := oidc.NewProvider(ctx, DEFAULT_OIDC_ISSUER)
+	discoveryURL := strings.TrimSuffix(DEFAULT_OIDC_ISSUER, "/") + "/.well-known/openid-configuration"
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(discoveryURL)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to discover OIDC config from %s: %v", DEFAULT_OIDC_ISSUER, err)
 	}
-	endpoints := provider.Endpoint()
-	if err != nil {
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		return "", "", fmt.Errorf("failed to discover OIDC config from %s: %s: %s", DEFAULT_OIDC_ISSUER, resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var discovery struct {
+		AuthorizationEndpoint string `json:"authorization_endpoint"`
+		TokenEndpoint         string `json:"token_endpoint"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
 		return "", "", fmt.Errorf("failed to parse OIDC provider endpoints: %v", err)
 	}
+	if discovery.AuthorizationEndpoint == "" || discovery.TokenEndpoint == "" {
+		return "", "", fmt.Errorf("OIDC discovery document from %s did not include authorization/token endpoints", DEFAULT_OIDC_ISSUER)
+	}
 	if *debug {
-		fmt.Printf("Discovered authorization endpoint: %s\n", endpoints.AuthURL)
-		fmt.Printf("Discovered token endpoint: %s\n", endpoints.TokenURL)
+		fmt.Printf("Discovered authorization endpoint: %s\n", discovery.AuthorizationEndpoint)
+		fmt.Printf("Discovered token endpoint: %s\n", discovery.TokenEndpoint)
 	}
 
-	return endpoints.AuthURL, endpoints.TokenURL, nil
+	return discovery.AuthorizationEndpoint, discovery.TokenEndpoint, nil
 }
 
-func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
-	accessToken, err := getCachedAccessToken(*debug)
-	if *debug && err != nil {
-		fmt.Printf("Failed get cached access token: %s", err)
-	}
-	if accessToken != "" {
-		return accessToken, err
-	}
+type authCodeResult struct {
+	Code            string
+	State           string
+	AttestationData string
+}
 
-	// ==== OIDC Discovery ====
-	authUrl, tokenUrl, err := GetOIDCDiscovery(debug)
-	if err != nil {
-		return "", err
-	}
+type oauthConfig struct {
+	ClientID      string
+	ClientSecret  string
+	RedirectURL   string
+	Scopes        []string
+	AuthURL       string
+	TokenURL      string
+	ResponseType  string
+	State         string
+	CodeVerifier  string
+	CodeChallenge string
+}
 
-	// ==== CONFIG ====
-	conf := &oauth2.Config{
+func buildOAuthConfig(authURL, tokenURL string) *oauthConfig {
+	return &oauthConfig{
 		ClientID:     DEFAULT_OIDC_CLIENT_ID,
 		ClientSecret: DEFAULT_OIDC_CLIENT_SECRET,
 		RedirectURL:  "http://127.0.0.1" + DEFAULT_OIDC_LISTEN_ADDRESS,
 		Scopes:       strings.Split(DEFAULT_OIDC_SCOPES, " "),
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  authUrl,
-			TokenURL: tokenUrl,
-		},
+		AuthURL:      authURL,
+		TokenURL:     tokenURL,
+		ResponseType: "code",
+	}
+}
+
+func buildPKCEOAuthConfig(authURL, tokenURL string) (*oauthConfig, error) {
+	conf := buildOAuthConfig(authURL, tokenURL)
+	state, err := generateOAuthState()
+	if err != nil {
+		return nil, err
+	}
+	conf.State = state
+
+	codeVerifier, codeChallenge, err := generatePKCEParameters()
+	if err != nil {
+		return nil, err
+	}
+	conf.CodeVerifier = codeVerifier
+	conf.CodeChallenge = codeChallenge
+	return conf, nil
+}
+
+func generatePKCEParameters() (string, string, error) {
+	verifierBytes := make([]byte, 32)
+	if _, err := rand.Read(verifierBytes); err != nil {
+		return "", "", fmt.Errorf("failed to generate PKCE verifier: %v", err)
 	}
 
-	// ==== OS logic ====
-	code := ""
-	var serverDone chan struct{}
-	if runtime.GOOS == "darwin" {
-		// On macOS: open browser, run HTTP server, get code automatically
-		serverDone = make(chan struct{})
-		go func() {
-			code = waitForCodeServer(DEFAULT_OIDC_LISTEN_ADDRESS, *responseMode)
-			close(serverDone)
-		}()
-		authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
-		authCodeURL += "&response_mode=" + *responseMode
-		fmt.Printf("Your browser should open. If not, open this URL:\n%s\n\n", authCodeURL)
-		_ = exec.Command("open", authCodeURL).Start()
-		<-serverDone
-	} else {
-		// On Windows/Linux: print URL, user logs in, then copy-pastes code
-		conf.RedirectURL = "urn:ietf:wg:oauth:2.0:oob"
-		authCodeURL := conf.AuthCodeURL("state", oauth2.AccessTypeOffline)
-		authCodeURL += "&response_mode=" + *responseMode
-		fmt.Printf("Open the following URL in your browser, log in, then paste the resulting code here:\n%s\n", authCodeURL)
-		if *responseMode == "form_post" {
-			fmt.Printf("\nAfter login, you will see a blank or success page. ")
-			fmt.Printf("Copy the 'code' value from the form POST (using browser dev tools or see the redirected form), and paste it below.\n")
-		}
-		fmt.Print("Enter the authorization code: ")
-		scanner := bufio.NewScanner(os.Stdin)
-		if scanner.Scan() {
-			code = strings.TrimSpace(scanner.Text())
-		}
+	codeVerifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
+	sum := sha256.Sum256([]byte(codeVerifier))
+	codeChallenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	return codeVerifier, codeChallenge, nil
+}
+
+func generateOAuthState() (string, error) {
+	stateBytes := make([]byte, 32)
+	if _, err := rand.Read(stateBytes); err != nil {
+		return "", fmt.Errorf("failed to generate oauth state: %v", err)
 	}
 
-	// ==== EXCHANGE CODE FOR TOKEN ====
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	token, err := conf.Exchange(ctx, code)
+	return base64.RawURLEncoding.EncodeToString(stateBytes), nil
+}
+
+func buildAuthCodeURL(conf *oauthConfig, responseMode string) (string, error) {
+	authURL, err := url.Parse(conf.AuthURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse auth URL: %v", err)
+	}
+	if strings.TrimSpace(conf.State) == "" {
+		return "", fmt.Errorf("oauth state must not be empty")
+	}
+
+	query := authURL.Query()
+	query.Set("client_id", conf.ClientID)
+	query.Set("redirect_uri", conf.RedirectURL)
+	responseType := strings.TrimSpace(conf.ResponseType)
+	if responseType == "" {
+		responseType = "code"
+	}
+	query.Set("response_type", responseType)
+	query.Set("scope", strings.Join(conf.Scopes, " "))
+	query.Set("state", conf.State)
+	query.Set("access_type", "offline")
+	if responseMode != "" {
+		query.Set("response_mode", responseMode)
+	}
+	if conf.CodeChallenge != "" {
+		query.Set("code_challenge", conf.CodeChallenge)
+		query.Set("code_challenge_method", "S256")
+	}
+	authURL.RawQuery = query.Encode()
+	return authURL.String(), nil
+}
+
+func exchangeAuthCode(conf *oauthConfig, code string) (string, error) {
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", code)
+	form.Set("redirect_uri", conf.RedirectURL)
+	form.Set("client_id", conf.ClientID)
+	if conf.ClientSecret != "" {
+		form.Set("client_secret", conf.ClientSecret)
+	}
+	if conf.CodeVerifier != "" {
+		form.Set("code_verifier", conf.CodeVerifier)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, conf.TokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create token request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("token exchange failed: %v", err)
 	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("token exchange failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
 
-	accessToken = token.AccessToken
-
+	accessToken, err := parseAccessTokenResponse(resp.Body)
+	if err != nil {
+		return "", err
+	}
 	if accessToken != "" {
 		accessTokenFilePath := getAccessTokenCachePath()
-		createCacheDir(filepath.Dir(accessTokenFilePath), *debug)
-		err := os.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
+		err := createCacheDir(filepath.Dir(accessTokenFilePath), false)
+		if err != nil {
+			return "", err
+		}
+		err = os.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
 		if err != nil {
 			return "", fmt.Errorf("failed to store access token to: %s, error %s", accessTokenFilePath, err)
 		}
@@ -188,47 +331,281 @@ func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 	return accessToken, nil
 }
 
-// waitForCodeServer runs a local HTTP server to capture the OAuth2 code via GET or POST.
-// Returns the code string.
-func waitForCodeServer(listenAddress, responseMode string) string {
-	codeCh := make(chan string)
-	server := &http.Server{Addr: listenAddress}
+func parseAccessTokenResponse(body io.Reader) (string, error) {
+	var token struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(body).Decode(&token); err != nil {
+		return "", fmt.Errorf("failed to parse token response: %v", err)
+	}
+	if token.AccessToken == "" {
+		return "", fmt.Errorf("token response did not include access_token")
+	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		var code string
+	return token.AccessToken, nil
+}
+
+func parseAuthInput(raw string) (authCodeResult, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return authCodeResult{}, fmt.Errorf("authorization response is empty")
+	}
+
+	values, err := url.ParseQuery(raw)
+	if err == nil && values.Get("code") != "" {
+		return authCodeResult{
+			Code:            values.Get("code"),
+			State:           values.Get("state"),
+			AttestationData: raw,
+		}, nil
+	}
+
+	parsedURL, err := url.Parse(raw)
+	if err == nil {
+		switch {
+		case parsedURL.Query().Get("code") != "":
+			return authCodeResult{
+				Code:            parsedURL.Query().Get("code"),
+				State:           parsedURL.Query().Get("state"),
+				AttestationData: parsedURL.RawQuery,
+			}, nil
+		case parsedURL.Fragment != "":
+			values, err := url.ParseQuery(parsedURL.Fragment)
+			if err == nil && values.Get("code") != "" {
+				return authCodeResult{
+					Code:            values.Get("code"),
+					State:           values.Get("state"),
+					AttestationData: parsedURL.Fragment,
+				}, nil
+			}
+		}
+	}
+
+	return authCodeResult{
+		Code:            raw,
+		AttestationData: raw,
+	}, nil
+}
+
+func validateAuthCodeResult(result authCodeResult, expectedState string) error {
+	if expectedState == "" {
+		return nil
+	}
+	if result.State == "" {
+		return fmt.Errorf("authorization response did not include state")
+	}
+	if subtle.ConstantTimeCompare([]byte(result.State), []byte(expectedState)) != 1 {
+		return fmt.Errorf("authorization response state mismatch")
+	}
+	return nil
+}
+
+func getAuthCodeResult(conf *oauthConfig, responseMode *string) (authCodeResult, error) {
+	if runtime.GOOS == "darwin" {
+		authCodeURL, err := buildAuthCodeURL(conf, *responseMode)
+		if err != nil {
+			return authCodeResult{}, err
+		}
+
+		serverDone := make(chan authCodeResult, 1)
+		serverErr := make(chan error, 1)
+		go func() {
+			result, err := waitForCodeServer(DEFAULT_OIDC_LISTEN_ADDRESS)
+			if err != nil {
+				serverErr <- err
+				return
+			}
+			serverDone <- result
+		}()
+		fmt.Printf("Your browser should open. If not, open this URL:\n%s\n\n", authCodeURL)
+		_ = exec.Command("open", authCodeURL).Start()
+		select {
+		case err := <-serverErr:
+			return authCodeResult{}, err
+		case result := <-serverDone:
+			if result.Code == "" {
+				return authCodeResult{}, fmt.Errorf("no authorization code in callback")
+			}
+			if err := validateAuthCodeResult(result, conf.State); err != nil {
+				return authCodeResult{}, err
+			}
+			return result, nil
+		}
+	}
+
+	manualConf := *conf
+	manualConf.RedirectURL = "urn:ietf:wg:oauth:2.0:oob"
+	authCodeURL, err := buildAuthCodeURL(&manualConf, *responseMode)
+	if err != nil {
+		return authCodeResult{}, err
+	}
+	fmt.Printf("Open the following URL in your browser, log in, then paste the resulting authorization response here:\n%s\n", authCodeURL)
+	fmt.Printf("\nPaste the full callback URL or payload so the CLI can validate the OAuth state.\n")
+	fmt.Print("Enter the authorization response: ")
+	scanner := bufio.NewScanner(os.Stdin)
+	if scanner.Scan() {
+		result, err := parseAuthInput(scanner.Text())
+		if err != nil {
+			return authCodeResult{}, err
+		}
+		if err := validateAuthCodeResult(result, conf.State); err != nil {
+			return authCodeResult{}, fmt.Errorf("%w; paste the full callback URL or form payload instead of only the code", err)
+		}
+		return result, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return authCodeResult{}, fmt.Errorf("failed to read authorization response: %v", err)
+	}
+	return authCodeResult{}, fmt.Errorf("failed to read authorization response")
+}
+
+func buildAttestationData(result authCodeResult, codeVerifier string) string {
+	values, err := url.ParseQuery(strings.TrimSpace(result.AttestationData))
+	if err != nil || values.Get("code") == "" {
+		values = url.Values{}
+		values.Set("code", result.Code)
+	}
+	if codeVerifier != "" {
+		values.Set("code_verifier", codeVerifier)
+	}
+	return values.Encode()
+}
+
+func buildAuthAttestationDataAndAccessToken(conf *oauthConfig, authResult authCodeResult, cachedAccessToken string, exchange func(*oauthConfig, string) (string, error)) (string, string, error) {
+	attestationData := buildAttestationData(authResult, conf.CodeVerifier)
+	if cachedAccessToken != "" {
+		return attestationData, cachedAccessToken, nil
+	}
+
+	accessToken, err := exchange(conf, authResult.Code)
+	if err != nil {
+		return "", "", err
+	}
+
+	return attestationData, accessToken, nil
+}
+
+func startOIDCAuthCodeFlow(responseMode *string, debug *bool) (*oauthConfig, authCodeResult, error) {
+	authURL, tokenURL, err := GetOIDCDiscovery(debug)
+	if err != nil {
+		return nil, authCodeResult{}, err
+	}
+
+	conf, err := buildPKCEOAuthConfig(authURL, tokenURL)
+	if err != nil {
+		return nil, authCodeResult{}, err
+	}
+	authResult, err := getAuthCodeResult(conf, responseMode)
+	if err != nil {
+		return nil, authCodeResult{}, err
+	}
+
+	return conf, authResult, nil
+}
+
+func GetAuthAttestationData(responseMode *string, debug *bool) (string, error) {
+	conf, authResult, err := startOIDCAuthCodeFlow(responseMode, debug)
+	if err != nil {
+		return "", err
+	}
+
+	return buildAttestationData(authResult, conf.CodeVerifier), nil
+}
+
+func GetAuthAttestationDataAndAccessToken(responseMode *string, debug *bool) (string, string, error) {
+	accessToken, err := getCachedAccessToken(*debug)
+	if *debug && err != nil {
+		fmt.Printf("Failed get cached access token: %s\n", err)
+	}
+	if err != nil {
+		accessToken = ""
+	}
+
+	conf, authResult, err := startOIDCAuthCodeFlow(responseMode, debug)
+	if err != nil {
+		return "", "", err
+	}
+
+	return buildAuthAttestationDataAndAccessToken(conf, authResult, accessToken, exchangeAuthCode)
+}
+
+func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
+	accessToken, err := getCachedAccessToken(*debug)
+	if *debug && err != nil {
+		fmt.Printf("Failed get cached access token: %s\n", err)
+	}
+	if accessToken != "" {
+		return accessToken, err
+	}
+
+	conf, authResult, err := startOIDCAuthCodeFlow(responseMode, debug)
+	if err != nil {
+		return "", err
+	}
+
+	return exchangeAuthCode(conf, authResult.Code)
+}
+
+// waitForCodeServer runs a local HTTP server to capture the OAuth2 code via GET or POST.
+// Returns the code and the raw callback payload.
+func waitForCodeServer(listenAddress string) (authCodeResult, error) {
+	codeCh := make(chan authCodeResult, 1)
+	errCh := make(chan error, 1)
+	mux := http.NewServeMux()
+	server := &http.Server{
+		Addr:              listenAddress,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		var code, state, attestationData string
 		if r.Method == http.MethodPost {
 			if err := r.ParseForm(); err != nil {
 				http.Error(w, "Failed to parse form", http.StatusBadRequest)
 				return
 			}
 			code = r.FormValue("code")
+			state = r.FormValue("state")
+			attestationData = r.PostForm.Encode()
 		} else {
 			code = r.URL.Query().Get("code")
+			state = r.URL.Query().Get("state")
+			attestationData = r.URL.RawQuery
 		}
 		if code == "" {
 			http.Error(w, "No code in request", http.StatusBadRequest)
 			return
 		}
 		fmt.Fprintf(w, "Login successful! You can close this tab.")
-		codeCh <- code
+		codeCh <- authCodeResult{
+			Code:            code,
+			State:           state,
+			AttestationData: attestationData,
+		}
 	})
 
 	go func() {
-		_ = server.ListenAndServe()
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("failed to listen for authorization callback: %v", err)
+		}
 	}()
 	defer func() { time.Sleep(1 * time.Second); server.Close() }()
 
-	code := <-codeCh
-	return code
+	select {
+	case result := <-codeCh:
+		return result, nil
+	case err := <-errCh:
+		return authCodeResult{}, err
+	}
 }
 
 func GetUserNameFromAccessToken(rawJWT, userNameClaim string) (string, error) {
-	// The JWT signature is not validated here, as the remote server is responsible for validation.
-	token, _, err := new(jwt.Parser).ParseUnverified(rawJWT, jwt.MapClaims{})
+	claims, err := parseJWTClaims(rawJWT)
 	if err != nil {
-		return "", fmt.Errorf("invalid jwt: %s, error: %s", rawJWT, err)
+		return "", err
 	}
-	claims, _ := token.Claims.(jwt.MapClaims)
+
 	var userClaim string
 	if userNameClaim != "" {
 		userClaim = userNameClaim

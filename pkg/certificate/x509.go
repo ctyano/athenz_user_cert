@@ -190,8 +190,7 @@ func VerifyCertificate(cert, cacert *x509.Certificate) (err error) {
 func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *crypto.PrivateKey, *pem.Block) {
 	privateKey, err := GenerateKey(algorithm)
 	if err != nil {
-		fmt.Errorf("Failed to generate a key: %s", err)
-		return err, nil, nil
+		return fmt.Errorf("Failed to generate a key: %w", err), nil, nil
 	}
 
 	var sandns, sanemail []string
@@ -217,9 +216,11 @@ func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) 
 		uris := strings.Split(*uriarg, ",")
 		for _, v := range uris {
 			uri, err := url.Parse(v)
-			if err == nil && uri.Scheme != "" {
-				fmt.Errorf("Invalid uri [%s]: %s", v, err)
-				return err, &privateKey, nil
+			if err != nil {
+				return fmt.Errorf("Invalid uri [%s]: %w", v, err), &privateKey, nil
+			}
+			if uri.Scheme == "" {
+				return fmt.Errorf("Invalid uri [%s]: missing scheme", v), &privateKey, nil
 			}
 			sanuri = append(sanuri, uri)
 		}
@@ -237,8 +238,7 @@ func GenerateCSR(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) 
 
 	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTemplate, privateKey)
 	if err != nil {
-		fmt.Errorf("Failed to create csr: %w", err)
-		return err, &privateKey, nil
+		return fmt.Errorf("Failed to create csr: %w", err), &privateKey, nil
 	}
 
 	return nil, &privateKey, &pem.Block{
