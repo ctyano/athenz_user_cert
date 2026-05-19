@@ -55,6 +55,7 @@ func TestBuildAttestationDataHandlesBareCodeInput(t *testing.T) {
 
 func TestBuildAuthCodeURLIncludesPKCE(t *testing.T) {
 	conf := buildOAuthConfig("https://issuer.example/auth", "https://issuer.example/token")
+	conf.State = "test-state"
 	conf.CodeChallenge = "test-challenge"
 
 	authURL, err := buildAuthCodeURL(conf, "form_post")
@@ -74,6 +75,9 @@ func TestBuildAuthCodeURLIncludesPKCE(t *testing.T) {
 	if got := values.Get("response_mode"); got != "form_post" {
 		t.Fatalf("expected response_mode=form_post, got %q", got)
 	}
+	if got := values.Get("state"); got != "test-state" {
+		t.Fatalf("expected state=test-state, got %q", got)
+	}
 	if got := values.Get("code_challenge"); got != "test-challenge" {
 		t.Fatalf("expected code_challenge to be set, got %q", got)
 	}
@@ -91,8 +95,55 @@ func TestParseAuthInputHandlesFullCallbackURL(t *testing.T) {
 	if result.Code != "test-code" {
 		t.Fatalf("expected code to be parsed from callback URL, got %q", result.Code)
 	}
+	if result.State != "test-state" {
+		t.Fatalf("expected state to be parsed from callback URL, got %q", result.State)
+	}
 	if result.AttestationData != "code=test-code&state=test-state" {
 		t.Fatalf("expected attestation data to contain raw query params, got %q", result.AttestationData)
+	}
+}
+
+func TestParseAuthInputHandlesFragmentCallback(t *testing.T) {
+	result, err := parseAuthInput("http://127.0.0.1:8080/#code=test-code&state=test-state")
+	if err != nil {
+		t.Fatalf("parseAuthInput returned error: %v", err)
+	}
+
+	if result.Code != "test-code" {
+		t.Fatalf("expected code to be parsed from callback fragment, got %q", result.Code)
+	}
+	if result.State != "test-state" {
+		t.Fatalf("expected state to be parsed from callback fragment, got %q", result.State)
+	}
+	if result.AttestationData != "code=test-code&state=test-state" {
+		t.Fatalf("expected attestation data to contain raw fragment params, got %q", result.AttestationData)
+	}
+}
+
+func TestValidateAuthCodeResultRejectsMissingState(t *testing.T) {
+	err := validateAuthCodeResult(authCodeResult{Code: "test-code"}, "expected-state")
+	if err == nil {
+		t.Fatal("expected missing state to return an error")
+	}
+	if !strings.Contains(err.Error(), "did not include state") {
+		t.Fatalf("expected missing state error, got %v", err)
+	}
+}
+
+func TestValidateAuthCodeResultRejectsStateMismatch(t *testing.T) {
+	err := validateAuthCodeResult(authCodeResult{Code: "test-code", State: "wrong-state"}, "expected-state")
+	if err == nil {
+		t.Fatal("expected state mismatch to return an error")
+	}
+	if !strings.Contains(err.Error(), "state mismatch") {
+		t.Fatalf("expected state mismatch error, got %v", err)
+	}
+}
+
+func TestValidateAuthCodeResultAcceptsMatchingState(t *testing.T) {
+	err := validateAuthCodeResult(authCodeResult{Code: "test-code", State: "expected-state"}, "expected-state")
+	if err != nil {
+		t.Fatalf("expected matching state to succeed, got %v", err)
 	}
 }
 
@@ -214,6 +265,16 @@ func TestGetCachedAccessTokenRejectsMalformedJWT(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid jwt") {
 		t.Fatalf("expected invalid jwt error, got %v", err)
+	}
+}
+
+func TestParseJWTClaimsRejectsJWTWithUnexpectedPartCount(t *testing.T) {
+	_, err := parseJWTClaims("header.payload")
+	if err == nil {
+		t.Fatal("expected jwt with two parts to return an error")
+	}
+	if !strings.Contains(err.Error(), "expected 3 parts") {
+		t.Fatalf("expected 3-part validation error, got %v", err)
 	}
 }
 

@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -91,13 +93,13 @@ func getJWTExpiry(rawJWT string) (time.Time, error) {
 
 func parseJWTClaims(rawJWT string) (map[string]any, error) {
 	parts := strings.Split(rawJWT, ".")
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid jwt: %s", rawJWT)
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid jwt: expected 3 parts, got %d", len(parts))
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("invalid jwt: %s, error: %s", rawJWT, err)
+		return nil, fmt.Errorf("invalid jwt payload encoding: %w", err)
 	}
 
 	claims := map[string]any{}
@@ -128,7 +130,7 @@ func parseJWTNumericDate(value any) (int64, error) {
 	}
 }
 
-func createCacheDir(dirname string, debug bool) (bool, error) {
+func createCacheDir(dirname string, debug bool) error {
 	if debug {
 		fmt.Printf("Checking if directory %s exists...\n", dirname)
 	}
@@ -138,16 +140,16 @@ func createCacheDir(dirname string, debug bool) (bool, error) {
 		}
 		err := os.MkdirAll(dirname, 0755)
 		if err != nil {
-			return false, fmt.Errorf("failed to create directory: %v", err)
+			return fmt.Errorf("failed to create directory: %v", err)
 		}
 	} else if err != nil {
-		return false, fmt.Errorf("failed to check directory: %v", err)
+		return fmt.Errorf("failed to check directory: %v", err)
 	} else {
 		if debug {
 			fmt.Printf("the cache directory %s exists.\n", dirname)
 		}
 	}
-	return true, nil
+	return nil
 }
 
 func GetOIDCDiscovery(debug *bool) (string, string, error) {
@@ -183,6 +185,7 @@ func GetOIDCDiscovery(debug *bool) (string, string, error) {
 
 type authCodeResult struct {
 	Code            string
+	State           string
 	AttestationData string
 }
 
@@ -194,6 +197,7 @@ type oauthConfig struct {
 	AuthURL       string
 	TokenURL      string
 	ResponseType  string
+	State         string
 	CodeVerifier  string
 	CodeChallenge string
 }
@@ -212,6 +216,12 @@ func buildOAuthConfig(authURL, tokenURL string) *oauthConfig {
 
 func buildPKCEOAuthConfig(authURL, tokenURL string) (*oauthConfig, error) {
 	conf := buildOAuthConfig(authURL, tokenURL)
+	state, err := generateOAuthState()
+	if err != nil {
+		return nil, err
+	}
+	conf.State = state
+
 	codeVerifier, codeChallenge, err := generatePKCEParameters()
 	if err != nil {
 		return nil, err
@@ -233,10 +243,22 @@ func generatePKCEParameters() (string, string, error) {
 	return codeVerifier, codeChallenge, nil
 }
 
+func generateOAuthState() (string, error) {
+	stateBytes := make([]byte, 32)
+	if _, err := rand.Read(stateBytes); err != nil {
+		return "", fmt.Errorf("failed to generate oauth state: %v", err)
+	}
+
+	return base64.RawURLEncoding.EncodeToString(stateBytes), nil
+}
+
 func buildAuthCodeURL(conf *oauthConfig, responseMode string) (string, error) {
 	authURL, err := url.Parse(conf.AuthURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse auth URL: %v", err)
+	}
+	if strings.TrimSpace(conf.State) == "" {
+		return "", fmt.Errorf("oauth state must not be empty")
 	}
 
 	query := authURL.Query()
@@ -248,7 +270,7 @@ func buildAuthCodeURL(conf *oauthConfig, responseMode string) (string, error) {
 	}
 	query.Set("response_type", responseType)
 	query.Set("scope", strings.Join(conf.Scopes, " "))
-	query.Set("state", "state")
+	query.Set("state", conf.State)
 	query.Set("access_type", "offline")
 	if responseMode != "" {
 		query.Set("response_mode", responseMode)
@@ -297,8 +319,11 @@ func exchangeAuthCode(conf *oauthConfig, code string) (string, error) {
 	}
 	if accessToken != "" {
 		accessTokenFilePath := getAccessTokenCachePath()
-		createCacheDir(filepath.Dir(accessTokenFilePath), false)
-		err := os.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
+		err := createCacheDir(filepath.Dir(accessTokenFilePath), false)
+		if err != nil {
+			return "", err
+		}
+		err = os.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
 		if err != nil {
 			return "", fmt.Errorf("failed to store access token to: %s, error %s", accessTokenFilePath, err)
 		}
@@ -330,6 +355,7 @@ func parseAuthInput(raw string) (authCodeResult, error) {
 	if err == nil && values.Get("code") != "" {
 		return authCodeResult{
 			Code:            values.Get("code"),
+			State:           values.Get("state"),
 			AttestationData: raw,
 		}, nil
 	}
@@ -340,6 +366,7 @@ func parseAuthInput(raw string) (authCodeResult, error) {
 		case parsedURL.Query().Get("code") != "":
 			return authCodeResult{
 				Code:            parsedURL.Query().Get("code"),
+				State:           parsedURL.Query().Get("state"),
 				AttestationData: parsedURL.RawQuery,
 			}, nil
 		case parsedURL.Fragment != "":
@@ -347,6 +374,7 @@ func parseAuthInput(raw string) (authCodeResult, error) {
 			if err == nil && values.Get("code") != "" {
 				return authCodeResult{
 					Code:            values.Get("code"),
+					State:           values.Get("state"),
 					AttestationData: parsedURL.Fragment,
 				}, nil
 			}
@@ -359,23 +387,50 @@ func parseAuthInput(raw string) (authCodeResult, error) {
 	}, nil
 }
 
+func validateAuthCodeResult(result authCodeResult, expectedState string) error {
+	if expectedState == "" {
+		return nil
+	}
+	if result.State == "" {
+		return fmt.Errorf("authorization response did not include state")
+	}
+	if subtle.ConstantTimeCompare([]byte(result.State), []byte(expectedState)) != 1 {
+		return fmt.Errorf("authorization response state mismatch")
+	}
+	return nil
+}
+
 func getAuthCodeResult(conf *oauthConfig, responseMode *string) (authCodeResult, error) {
 	if runtime.GOOS == "darwin" {
-		serverDone := make(chan authCodeResult, 1)
-		go func() {
-			serverDone <- waitForCodeServer(DEFAULT_OIDC_LISTEN_ADDRESS)
-		}()
 		authCodeURL, err := buildAuthCodeURL(conf, *responseMode)
 		if err != nil {
 			return authCodeResult{}, err
 		}
+
+		serverDone := make(chan authCodeResult, 1)
+		serverErr := make(chan error, 1)
+		go func() {
+			result, err := waitForCodeServer(DEFAULT_OIDC_LISTEN_ADDRESS)
+			if err != nil {
+				serverErr <- err
+				return
+			}
+			serverDone <- result
+		}()
 		fmt.Printf("Your browser should open. If not, open this URL:\n%s\n\n", authCodeURL)
 		_ = exec.Command("open", authCodeURL).Start()
-		result := <-serverDone
-		if result.Code == "" {
-			return authCodeResult{}, fmt.Errorf("no authorization code in callback")
+		select {
+		case err := <-serverErr:
+			return authCodeResult{}, err
+		case result := <-serverDone:
+			if result.Code == "" {
+				return authCodeResult{}, fmt.Errorf("no authorization code in callback")
+			}
+			if err := validateAuthCodeResult(result, conf.State); err != nil {
+				return authCodeResult{}, err
+			}
+			return result, nil
 		}
-		return result, nil
 	}
 
 	manualConf := *conf
@@ -385,13 +440,21 @@ func getAuthCodeResult(conf *oauthConfig, responseMode *string) (authCodeResult,
 		return authCodeResult{}, err
 	}
 	fmt.Printf("Open the following URL in your browser, log in, then paste the resulting authorization response here:\n%s\n", authCodeURL)
-	if *responseMode == "form_post" {
-		fmt.Printf("\nPaste the full callback payload (for example: code=...&state=...), or just the code value.\n")
-	}
+	fmt.Printf("\nPaste the full callback URL or payload so the CLI can validate the OAuth state.\n")
 	fmt.Print("Enter the authorization response: ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if scanner.Scan() {
-		return parseAuthInput(scanner.Text())
+		result, err := parseAuthInput(scanner.Text())
+		if err != nil {
+			return authCodeResult{}, err
+		}
+		if err := validateAuthCodeResult(result, conf.State); err != nil {
+			return authCodeResult{}, fmt.Errorf("%w; paste the full callback URL or form payload instead of only the code", err)
+		}
+		return result, nil
+	}
+	if err := scanner.Err(); err != nil {
+		return authCodeResult{}, fmt.Errorf("failed to read authorization response: %v", err)
 	}
 	return authCodeResult{}, fmt.Errorf("failed to read authorization response")
 }
@@ -422,17 +485,26 @@ func buildAuthAttestationDataAndAccessToken(conf *oauthConfig, authResult authCo
 	return attestationData, accessToken, nil
 }
 
-func GetAuthAttestationData(responseMode *string, debug *bool) (string, error) {
+func startOIDCAuthCodeFlow(responseMode *string, debug *bool) (*oauthConfig, authCodeResult, error) {
 	authURL, tokenURL, err := GetOIDCDiscovery(debug)
 	if err != nil {
-		return "", err
+		return nil, authCodeResult{}, err
 	}
 
 	conf, err := buildPKCEOAuthConfig(authURL, tokenURL)
 	if err != nil {
-		return "", err
+		return nil, authCodeResult{}, err
 	}
 	authResult, err := getAuthCodeResult(conf, responseMode)
+	if err != nil {
+		return nil, authCodeResult{}, err
+	}
+
+	return conf, authResult, nil
+}
+
+func GetAuthAttestationData(responseMode *string, debug *bool) (string, error) {
+	conf, authResult, err := startOIDCAuthCodeFlow(responseMode, debug)
 	if err != nil {
 		return "", err
 	}
@@ -449,16 +521,7 @@ func GetAuthAttestationDataAndAccessToken(responseMode *string, debug *bool) (st
 		accessToken = ""
 	}
 
-	authURL, tokenURL, err := GetOIDCDiscovery(debug)
-	if err != nil {
-		return "", "", err
-	}
-
-	conf, err := buildPKCEOAuthConfig(authURL, tokenURL)
-	if err != nil {
-		return "", "", err
-	}
-	authResult, err := getAuthCodeResult(conf, responseMode)
+	conf, authResult, err := startOIDCAuthCodeFlow(responseMode, debug)
 	if err != nil {
 		return "", "", err
 	}
@@ -475,16 +538,7 @@ func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 		return accessToken, err
 	}
 
-	authURL, tokenURL, err := GetOIDCDiscovery(debug)
-	if err != nil {
-		return "", err
-	}
-
-	conf, err := buildPKCEOAuthConfig(authURL, tokenURL)
-	if err != nil {
-		return "", err
-	}
-	authResult, err := getAuthCodeResult(conf, responseMode)
+	conf, authResult, err := startOIDCAuthCodeFlow(responseMode, debug)
 	if err != nil {
 		return "", err
 	}
@@ -494,22 +548,29 @@ func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 
 // waitForCodeServer runs a local HTTP server to capture the OAuth2 code via GET or POST.
 // Returns the code and the raw callback payload.
-func waitForCodeServer(listenAddress string) authCodeResult {
-	codeCh := make(chan authCodeResult)
+func waitForCodeServer(listenAddress string) (authCodeResult, error) {
+	codeCh := make(chan authCodeResult, 1)
+	errCh := make(chan error, 1)
 	mux := http.NewServeMux()
-	server := &http.Server{Addr: listenAddress, Handler: mux}
+	server := &http.Server{
+		Addr:              listenAddress,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		var code, attestationData string
+		var code, state, attestationData string
 		if r.Method == http.MethodPost {
 			if err := r.ParseForm(); err != nil {
 				http.Error(w, "Failed to parse form", http.StatusBadRequest)
 				return
 			}
 			code = r.FormValue("code")
+			state = r.FormValue("state")
 			attestationData = r.PostForm.Encode()
 		} else {
 			code = r.URL.Query().Get("code")
+			state = r.URL.Query().Get("state")
 			attestationData = r.URL.RawQuery
 		}
 		if code == "" {
@@ -519,16 +580,24 @@ func waitForCodeServer(listenAddress string) authCodeResult {
 		fmt.Fprintf(w, "Login successful! You can close this tab.")
 		codeCh <- authCodeResult{
 			Code:            code,
+			State:           state,
 			AttestationData: attestationData,
 		}
 	})
 
 	go func() {
-		_ = server.ListenAndServe()
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- fmt.Errorf("failed to listen for authorization callback: %v", err)
+		}
 	}()
 	defer func() { time.Sleep(1 * time.Second); server.Close() }()
 
-	return <-codeCh
+	select {
+	case result := <-codeCh:
+		return result, nil
+	case err := <-errCh:
+		return authCodeResult{}, err
+	}
 }
 
 func GetUserNameFromAccessToken(rawJWT, userNameClaim string) (string, error) {
