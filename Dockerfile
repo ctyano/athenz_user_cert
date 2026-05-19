@@ -36,4 +36,4 @@ ENV BINARY_NAME=${BINARY_NAME}
 
 COPY --from=builder /usr/bin/${BINARY_NAME} /usr/bin/${BINARY_NAME}
 
-ENTRYPOINT ["/usr/bin/athenzusercert"]
+ENTRYPOINT /usr/bin/${BINARY_NAME}
