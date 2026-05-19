@@ -26,15 +26,8 @@ var (
 	DEFAULT_OIDC_SCOPES                = "openid email profile"
 	DEFAULT_OIDC_LISTEN_ADDRESS        = ":8080"
 	DEFAULT_OIDC_ACCESS_TOKEN_PATH     = ".athenz/.accesstoken"
-	DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY = "30" // in minutes
 	DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM = "name"
 )
-
-type FileUtil interface {
-	isCacheFileExpired(filename string, maxage float64) bool
-	createCacheDir(dirname string) bool
-	getCachedAccessToken() string
-}
 
 func getAccessTokenCachePath() string {
 	h, _ := os.UserHomeDir()
@@ -43,29 +36,96 @@ func getAccessTokenCachePath() string {
 
 func getCachedAccessToken(debug bool) (string, error) {
 	accessTokenFile := getAccessTokenCachePath()
-	validity, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_OIDC_ACCESS_TOKEN_VALIDITY))
-	if expired, err := isCacheFileExpired(accessTokenFile, float64(validity), debug); !expired && err == nil {
-		data, err := os.ReadFile(accessTokenFile)
-		if err != nil || expired {
-			return "", err
-		}
-		return strings.TrimSpace(string(data)), nil
-	} else {
-		return "", fmt.Errorf("could not check the cache file, error: %v", err)
+	data, err := os.ReadFile(accessTokenFile)
+	if err != nil {
+		return "", fmt.Errorf("could not read the cache file, error: %v", err)
 	}
+
+	accessToken := strings.TrimSpace(string(data))
+	if accessToken == "" {
+		return "", fmt.Errorf("cached access token is empty")
+	}
+
+	expired, err := isAccessTokenExpired(accessToken, debug)
+	if err != nil {
+		return "", err
+	}
+	if expired {
+		return "", fmt.Errorf("access token has expired")
+	}
+
+	return accessToken, nil
 }
 
-func isCacheFileExpired(filename string, maxAge float64, debug bool) (bool, error) {
-	info, err := os.Stat(filename)
+func isAccessTokenExpired(accessToken string, debug bool) (bool, error) {
+	expiry, err := getJWTExpiry(accessToken)
 	if err != nil {
-		return false, fmt.Errorf("could not read the cache file, error: %v", err)
+		return false, fmt.Errorf("could not parse cached access token: %v", err)
 	}
-	delta := time.Since(info.ModTime())
-	// return false if duration exceeds maxAge
-	if expired := delta.Minutes() > maxAge; expired {
-		return expired, fmt.Errorf("access token has expired")
+
+	if debug {
+		fmt.Printf("Cached access token expires at %s\n", expiry.UTC().Format(time.RFC3339))
 	}
-	return false, nil
+
+	return !time.Now().Before(expiry), nil
+}
+
+func getJWTExpiry(rawJWT string) (time.Time, error) {
+	claims, err := parseJWTClaims(rawJWT)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	expClaim, ok := claims["exp"]
+	if !ok {
+		return time.Time{}, fmt.Errorf("no exp claim in jwt")
+	}
+
+	expUnix, err := parseJWTNumericDate(expClaim)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid exp claim in jwt: %v", err)
+	}
+
+	return time.Unix(expUnix, 0), nil
+}
+
+func parseJWTClaims(rawJWT string) (map[string]any, error) {
+	parts := strings.Split(rawJWT, ".")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid jwt: %s", rawJWT)
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid jwt: %s, error: %s", rawJWT, err)
+	}
+
+	claims := map[string]any{}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("invalid jwt payload: %s", err)
+	}
+
+	return claims, nil
+}
+
+func parseJWTNumericDate(value any) (int64, error) {
+	switch v := value.(type) {
+	case float64:
+		if v != float64(int64(v)) {
+			return 0, fmt.Errorf("unexpected non-integer value %v", v)
+		}
+		return int64(v), nil
+	case json.Number:
+		return v.Int64()
+	case int64:
+		return v, nil
+	case int:
+		return int64(v), nil
+	case string:
+		return strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	default:
+		return 0, fmt.Errorf("unexpected type %T", value)
+	}
 }
 
 func createCacheDir(dirname string, debug bool) (bool, error) {
@@ -417,19 +477,9 @@ func waitForCodeServer(listenAddress string) authCodeResult {
 }
 
 func GetUserNameFromAccessToken(rawJWT, userNameClaim string) (string, error) {
-	parts := strings.Split(rawJWT, ".")
-	if len(parts) < 2 {
-		return "", fmt.Errorf("invalid jwt: %s", rawJWT)
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	claims, err := parseJWTClaims(rawJWT)
 	if err != nil {
-		return "", fmt.Errorf("invalid jwt: %s, error: %s", rawJWT, err)
-	}
-
-	claims := map[string]any{}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", fmt.Errorf("invalid jwt payload: %s", err)
+		return "", err
 	}
 
 	var userClaim string
