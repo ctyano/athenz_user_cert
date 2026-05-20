@@ -140,7 +140,7 @@ func SendZTSCSR(name string, url string, csr string, attestationData string, tru
 	resp, err := client.Do(req)
 	if err != nil {
 		if strings.Contains(err.Error(), "x509: certificate signed by unknown authority") {
-			return fmt.Errorf("Failed to send request: %s (set -ca-url to the Athenz CA PEM path if this is the first direct ZTS request)", err), ""
+			return fmt.Errorf("Failed to send request: %s (set -ca to the Athenz CA PEM path if this is the first direct ZTS request)", err), ""
 		}
 		return fmt.Errorf("Failed to send request: %s", err), ""
 	}

@@ -14,7 +14,7 @@ import (
 
 var (
 	DEFAULT_APP_NAME    = "athenzusercert"
-	DEFAULT_SIGNER_NAME = "crypki"
+	DEFAULT_SIGNER_NAME = "zts"
 )
 
 func main() {
@@ -52,8 +52,8 @@ Options:
 
 	// Parse argument flags
 	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
-	signerURL := flag.String("sign-url", "", "Target destination URL to send the certificate sign request (leave it empty to use default)")
-	caURL := flag.String("ca-url", "", "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
+	endpoint := flag.String("endpoint", "", "Target destination URL to send the certificate sign request (leave it empty to use default)")
+	caURL := flag.String("ca", "", "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
 
 	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
 	userNameClaim := flag.String("claim", oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM, "JWT Claim Name to extract the user name")
@@ -126,36 +126,36 @@ Options:
 
 	switch *signerName {
 	case "crypki":
-		if *signerURL == "" {
-			*signerURL = signer.DEFAULT_SIGNER_CRYPKI_SIGN_URL
+		if *endpoint == "" {
+			*endpoint = signer.DEFAULT_SIGNER_CRYPKI_SIGN_URL
 		}
 		if *caURL == "" {
 			*caURL = signer.DEFAULT_SIGNER_CRYPKI_CA_URL
 		}
 	case "cfssl":
-		if *signerURL == "" {
-			*signerURL = signer.DEFAULT_SIGNER_CFSSL_SIGN_URL
+		if *endpoint == "" {
+			*endpoint = signer.DEFAULT_SIGNER_CFSSL_SIGN_URL
 		}
 		if *caURL == "" {
 			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
 		}
 	case "zts":
-		if *signerURL == "" {
-			*signerURL = signer.DEFAULT_SIGNER_ZTS_SIGN_URL
+		if *endpoint == "" {
+			*endpoint = signer.DEFAULT_SIGNER_ZTS_SIGN_URL
 		}
 		if *caURL == "" {
 			*caURL = signer.DEFAULT_SIGNER_ZTS_CA_URL
 		}
 	}
 	if *debug {
-		fmt.Printf("Signer URL is set as:%s\n", *signerURL)
+		fmt.Printf("Signer URL is set as:%s\n", *endpoint)
 		fmt.Printf("Signer CA URL is set as:%s\n", *caURL)
 	}
 
 	var cert, cacert string
 	switch *signerName {
 	case "crypki":
-		err, cert = signer.SendCrypkiCSR(*signerURL, csr, &map[string][]string{
+		err, cert = signer.SendCrypkiCSR(*endpoint, csr, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
@@ -176,7 +176,7 @@ Options:
 			fmt.Printf("CA certificate:\n%s\n", cacert)
 		}
 	case "cfssl":
-		err, cert = signer.SendCFSSLCSR(*signerURL, csr, &map[string][]string{
+		err, cert = signer.SendCFSSLCSR(*endpoint, csr, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
@@ -197,7 +197,7 @@ Options:
 			fmt.Printf("CA certificate:\n%s\n", cacert)
 		}
 	case "zts":
-		err, cert = signer.SendZTSCSR(*commonName, *signerURL, csr, attestationData, *caURL, nil)
+		err, cert = signer.SendZTSCSR(*commonName, *endpoint, csr, attestationData, *caURL, nil)
 		if err != nil {
 			fmt.Printf("Failed to get signed certificate: %s\n", err)
 			os.Exit(1)
@@ -248,6 +248,6 @@ Options:
 	if cacert != "" {
 		fmt.Printf("Signed Athenz CA certificate is successfully stored at: \t%s\n", caCertDestination)
 	} else {
-		fmt.Printf("Signed Athenz CA certificate was not updated. Use -ca-url with a local PEM path or CA endpoint if you need to refresh %s\n", caCertDestination)
+		fmt.Printf("Signed Athenz CA certificate was not updated. Use -ca with a local PEM path or CA endpoint if you need to refresh %s\n", caCertDestination)
 	}
 }
