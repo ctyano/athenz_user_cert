@@ -29,6 +29,15 @@ var (
 	DEFAULT_OIDC_LISTEN_ADDRESS        = ":8080"
 	DEFAULT_OIDC_ACCESS_TOKEN_PATH     = ".athenz/.accesstoken"
 	DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM = "name"
+
+	currentGOOS                        = runtime.GOOS
+	authCodeInputReader      io.Reader = os.Stdin
+	openBrowserFunc                    = func(authCodeURL string) error { return exec.Command("open", authCodeURL).Start() }
+	waitForCodeServerFunc              = waitForCodeServer
+	oidcDiscoveryFunc                  = GetOIDCDiscovery
+	buildPKCEOAuthConfigFunc           = buildPKCEOAuthConfig
+	getAuthCodeResultFunc              = getAuthCodeResult
+	exchangeAuthCodeFunc               = exchangeAuthCode
 )
 
 func getAccessTokenCachePath() string {
@@ -401,7 +410,7 @@ func validateAuthCodeResult(result authCodeResult, expectedState string) error {
 }
 
 func getAuthCodeResult(conf *oauthConfig, responseMode *string) (authCodeResult, error) {
-	if runtime.GOOS == "darwin" {
+	if currentGOOS == "darwin" {
 		authCodeURL, err := buildAuthCodeURL(conf, *responseMode)
 		if err != nil {
 			return authCodeResult{}, err
@@ -410,7 +419,7 @@ func getAuthCodeResult(conf *oauthConfig, responseMode *string) (authCodeResult,
 		serverDone := make(chan authCodeResult, 1)
 		serverErr := make(chan error, 1)
 		go func() {
-			result, err := waitForCodeServer(DEFAULT_OIDC_LISTEN_ADDRESS)
+			result, err := waitForCodeServerFunc(DEFAULT_OIDC_LISTEN_ADDRESS)
 			if err != nil {
 				serverErr <- err
 				return
@@ -418,7 +427,7 @@ func getAuthCodeResult(conf *oauthConfig, responseMode *string) (authCodeResult,
 			serverDone <- result
 		}()
 		fmt.Printf("Your browser should open. If not, open this URL:\n%s\n\n", authCodeURL)
-		_ = exec.Command("open", authCodeURL).Start()
+		_ = openBrowserFunc(authCodeURL)
 		select {
 		case err := <-serverErr:
 			return authCodeResult{}, err
@@ -442,7 +451,7 @@ func getAuthCodeResult(conf *oauthConfig, responseMode *string) (authCodeResult,
 	fmt.Printf("Open the following URL in your browser, log in, then paste the resulting authorization response here:\n%s\n", authCodeURL)
 	fmt.Printf("\nPaste the full callback URL or payload so the CLI can validate the OAuth state.\n")
 	fmt.Print("Enter the authorization response: ")
-	scanner := bufio.NewScanner(os.Stdin)
+	scanner := bufio.NewScanner(authCodeInputReader)
 	if scanner.Scan() {
 		result, err := parseAuthInput(scanner.Text())
 		if err != nil {
@@ -486,16 +495,16 @@ func buildAuthAttestationDataAndAccessToken(conf *oauthConfig, authResult authCo
 }
 
 func startOIDCAuthCodeFlow(responseMode *string, debug *bool) (*oauthConfig, authCodeResult, error) {
-	authURL, tokenURL, err := GetOIDCDiscovery(debug)
+	authURL, tokenURL, err := oidcDiscoveryFunc(debug)
 	if err != nil {
 		return nil, authCodeResult{}, err
 	}
 
-	conf, err := buildPKCEOAuthConfig(authURL, tokenURL)
+	conf, err := buildPKCEOAuthConfigFunc(authURL, tokenURL)
 	if err != nil {
 		return nil, authCodeResult{}, err
 	}
-	authResult, err := getAuthCodeResult(conf, responseMode)
+	authResult, err := getAuthCodeResultFunc(conf, responseMode)
 	if err != nil {
 		return nil, authCodeResult{}, err
 	}
@@ -526,7 +535,7 @@ func GetAuthAttestationDataAndAccessToken(responseMode *string, debug *bool) (st
 		return "", "", err
 	}
 
-	return buildAuthAttestationDataAndAccessToken(conf, authResult, accessToken, exchangeAuthCode)
+	return buildAuthAttestationDataAndAccessToken(conf, authResult, accessToken, exchangeAuthCodeFunc)
 }
 
 func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
@@ -543,7 +552,7 @@ func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 		return "", err
 	}
 
-	return exchangeAuthCode(conf, authResult.Code)
+	return exchangeAuthCodeFunc(conf, authResult.Code)
 }
 
 // waitForCodeServer runs a local HTTP server to capture the OAuth2 code via GET or POST.
@@ -559,30 +568,13 @@ func waitForCodeServer(listenAddress string) (authCodeResult, error) {
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		var code, state, attestationData string
-		if r.Method == http.MethodPost {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "Failed to parse form", http.StatusBadRequest)
-				return
-			}
-			code = r.FormValue("code")
-			state = r.FormValue("state")
-			attestationData = r.PostForm.Encode()
-		} else {
-			code = r.URL.Query().Get("code")
-			state = r.URL.Query().Get("state")
-			attestationData = r.URL.RawQuery
-		}
-		if code == "" {
-			http.Error(w, "No code in request", http.StatusBadRequest)
+		result, err := authCodeResultFromRequest(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		fmt.Fprintf(w, "Login successful! You can close this tab.")
-		codeCh <- authCodeResult{
-			Code:            code,
-			State:           state,
-			AttestationData: attestationData,
-		}
+		codeCh <- result
 	})
 
 	go func() {
@@ -598,6 +590,31 @@ func waitForCodeServer(listenAddress string) (authCodeResult, error) {
 	case err := <-errCh:
 		return authCodeResult{}, err
 	}
+}
+
+func authCodeResultFromRequest(r *http.Request) (authCodeResult, error) {
+	var code, state, attestationData string
+	if r.Method == http.MethodPost {
+		if err := r.ParseForm(); err != nil {
+			return authCodeResult{}, fmt.Errorf("Failed to parse form")
+		}
+		code = r.FormValue("code")
+		state = r.FormValue("state")
+		attestationData = r.PostForm.Encode()
+	} else {
+		code = r.URL.Query().Get("code")
+		state = r.URL.Query().Get("state")
+		attestationData = r.URL.RawQuery
+	}
+	if code == "" {
+		return authCodeResult{}, fmt.Errorf("No code in request")
+	}
+
+	return authCodeResult{
+		Code:            code,
+		State:           state,
+		AttestationData: attestationData,
+	}, nil
 }
 
 func GetUserNameFromAccessToken(rawJWT, userNameClaim string) (string, error) {

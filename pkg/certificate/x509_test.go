@@ -1,6 +1,11 @@
 package certificate
 
-import "testing"
+import (
+	"encoding/pem"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestGenerateCSRAcceptsURISANWithScheme(t *testing.T) {
 	cn := "user.alice"
@@ -27,5 +32,23 @@ func TestGenerateCSRRejectsURISANWithoutScheme(t *testing.T) {
 	}
 	if csrPEM != nil {
 		t.Fatal("expected no CSR PEM block when URI SAN is invalid")
+	}
+}
+
+func TestReadCSRRejectsInvalidInput(t *testing.T) {
+	csrPath := filepath.Join(t.TempDir(), "invalid.csr")
+	if err := os.WriteFile(csrPath, []byte("not-a-csr"), 0600); err != nil {
+		t.Fatalf("failed to write invalid csr: %v", err)
+	}
+
+	if err, _ := ReadCSR(csrPath); err == nil {
+		t.Fatal("expected invalid csr input to return an error")
+	}
+}
+
+func TestWritePEMRejectsMissingDirectory(t *testing.T) {
+	err := WritePEM(&pem.Block{Type: "TEST", Bytes: []byte("payload")}, filepath.Join(t.TempDir(), "missing", "cert.pem"))
+	if err == nil {
+		t.Fatal("expected WritePEM to return an error when parent directory is missing")
 	}
 }

@@ -111,6 +111,35 @@ func TestLoadErrorsWhenExplicitConfigIsMissing(t *testing.T) {
 	}
 }
 
+func TestDefaultConfigPathAndExpandHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	got, err := DefaultConfigPath()
+	if err != nil {
+		t.Fatalf("DefaultConfigPath returned error: %v", err)
+	}
+	if want := filepath.Join(os.Getenv("HOME"), defaultConfigPath); got != want {
+		t.Fatalf("expected default config path %q, got %q", want, got)
+	}
+	if got := expandHome("~/nested/config.yaml"); got != filepath.Join(os.Getenv("HOME"), "nested/config.yaml") {
+		t.Fatalf("expected expanded home path, got %q", got)
+	}
+	if got := expandHome("plain/path.yaml"); got != "plain/path.yaml" {
+		t.Fatalf("expected plain path to remain unchanged, got %q", got)
+	}
+}
+
+func TestReadConfigRejectsInvalidYAML(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("signer: ["), 0600); err != nil {
+		t.Fatalf("failed to write invalid config: %v", err)
+	}
+
+	if _, err := readConfig(configPath); err == nil {
+		t.Fatal("expected invalid yaml to return an error")
+	}
+}
+
 func saveDefaults() func() {
 	oidcClientID := oidc.DEFAULT_OIDC_CLIENT_ID
 	oidcClientSecret := oidc.DEFAULT_OIDC_CLIENT_SECRET

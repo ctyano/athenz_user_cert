@@ -102,6 +102,18 @@ func TestKeyAlgorithmsAndUsage(t *testing.T) {
 	}
 }
 
+func TestKeyHelperErrorPaths(t *testing.T) {
+	if _, err := PrivateKeyToPEM("not-a-private-key"); err == nil {
+		t.Fatal("expected invalid private key to return an error")
+	}
+	if _, err := PublicKeyFromPrivateKey("not-a-private-key"); err == nil {
+		t.Fatal("expected invalid private key type to return an error")
+	}
+	if err, _ := Decrypt("not-a-private-key", "%%%"); err == nil {
+		t.Fatal("expected invalid ciphertext to return an error")
+	}
+}
+
 func TestX509Helpers(t *testing.T) {
 	cn := "user.alice"
 	dns := "example.com"

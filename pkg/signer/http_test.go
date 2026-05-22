@@ -89,6 +89,36 @@ func TestGetCFSSLRootCAParsesCertificate(t *testing.T) {
 	}
 }
 
+func TestSendCFSSLCSRHandlesErrorResponse(t *testing.T) {
+	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusBadRequest, `{"error":"invalid csr"}`), nil
+	})
+	defer restore()
+
+	err, cert := SendCFSSLCSR("stub://cfssl.example/sign", "csr-data", nil)
+	if err == nil {
+		t.Fatal("expected SendCFSSLCSR to return an error")
+	}
+	if cert != "" {
+		t.Fatalf("expected no certificate on error, got %q", cert)
+	}
+}
+
+func TestGetCFSSLRootCAHandlesErrorResponse(t *testing.T) {
+	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusBadGateway, `{"error":"unavailable"}`), nil
+	})
+	defer restore()
+
+	err, cert := GetCFSSLRootCA(false, "stub://cfssl.example/info", nil)
+	if err == nil {
+		t.Fatal("expected GetCFSSLRootCA to return an error")
+	}
+	if cert != "" {
+		t.Fatalf("expected no certificate on error, got %q", cert)
+	}
+}
+
 func TestSendCrypkiCSR(t *testing.T) {
 	originalIdentifier := DEFAULT_SIGNER_CRYPKI_IDENTIFIER
 	originalValidity := DEFAULT_SIGNER_CRYPKI_VALIDITY
@@ -176,6 +206,36 @@ func TestGetCrypkiRootCAParsesCertificate(t *testing.T) {
 	}
 	if cert != "crypki-ca" {
 		t.Fatalf("expected certificate, got %q", cert)
+	}
+}
+
+func TestSendCrypkiCSRHandlesErrorResponse(t *testing.T) {
+	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusBadRequest, `{"error":"invalid csr"}`), nil
+	})
+	defer restore()
+
+	err, cert := SendCrypkiCSR("stub://crypki.example/sign", "csr-data", nil)
+	if err == nil {
+		t.Fatal("expected SendCrypkiCSR to return an error")
+	}
+	if cert != "" {
+		t.Fatalf("expected no certificate on error, got %q", cert)
+	}
+}
+
+func TestGetCrypkiRootCAHandlesErrorResponse(t *testing.T) {
+	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusBadGateway, `{"error":"unavailable"}`), nil
+	})
+	defer restore()
+
+	err, cert := GetCrypkiRootCA(false, "stub://crypki.example/ca", nil)
+	if err == nil {
+		t.Fatal("expected GetCrypkiRootCA to return an error")
+	}
+	if cert != "" {
+		t.Fatalf("expected no certificate on error, got %q", cert)
 	}
 }
 

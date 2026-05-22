@@ -4,6 +4,7 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -16,16 +17,42 @@ import (
 var (
 	DEFAULT_APP_NAME    = "athenzusercert"
 	DEFAULT_SIGNER_NAME = "zts"
+
+	loadConfig                         = appconfig.Load
+	getAuthAttestationData             = oidc.GetAuthAttestationData
+	getAuthAttestationDataAndAccessTok = oidc.GetAuthAttestationDataAndAccessToken
+	getAuthAccessToken                 = oidc.GetAuthAccessToken
+	getUserNameFromAccessToken         = oidc.GetUserNameFromAccessToken
+	generateCSR                        = certificate.GenerateCSR
+	privateKeyToPEM                    = certificate.PrivateKeyToPEM
+	writePEMFile                       = certificate.WritePEM
+	userKeyPath                        = certificate.UserKeyPath
+	userCertPath                       = certificate.UserCertPath
+	caCertPath                         = certificate.CACertPath
+	writeOutputFile                    = os.WriteFile
+	sendCrypkiCSR                      = signer.SendCrypkiCSR
+	getCrypkiRootCA                    = signer.GetCrypkiRootCA
+	sendCFSSLCSR                       = signer.SendCFSSLCSR
+	getCFSSLRootCA                     = signer.GetCFSSLRootCA
+	sendZTSCSR                         = signer.SendZTSCSR
+	getZTSRootCA                       = signer.GetZTSRootCA
 )
 
 func main() {
-	appname := DEFAULT_APP_NAME
-	cfg, loadErr := appconfig.Load()
+	cfg, loadErr := loadConfig()
 	if loadErr != nil {
 		fmt.Printf("Failed to load configuration: %s\n", loadErr)
 		os.Exit(1)
 	}
 
+	if err := execute(os.Args[1:], os.Stdout, cfg); err != nil {
+		fmt.Fprintln(os.Stdout, err)
+		os.Exit(1)
+	}
+}
+
+func execute(args []string, stdout io.Writer, cfg *appconfig.Settings) error {
+	appname := DEFAULT_APP_NAME
 	usage := fmt.Sprintf(`Usage of %s:
   Generate certificate signing request and send the csr to the server.
   Authenticate user with Open ID Connect protocol and retrieve OAuth Access Token.
@@ -39,201 +66,199 @@ Subcommands:
 Options:
 `, appname)
 
-	if len(os.Args) > 1 {
+	if len(args) > 0 {
 		switch {
-		case strings.HasSuffix(os.Args[1], "version"):
+		case strings.HasSuffix(args[0], "version"):
 			versionFlagSet := flag.NewFlagSet("version", flag.ExitOnError)
-			ExecuteVersionCommand(os.Args[2:], versionFlagSet)
-			return
-		case strings.HasSuffix(os.Args[1], "test"):
+			ExecuteVersionCommand(args[1:], versionFlagSet)
+			return nil
+		case strings.HasSuffix(args[0], "test"):
 			testFlagSet := flag.NewFlagSet("test", flag.ExitOnError)
-			ExecuteTestCommand(os.Args[2:], testFlagSet, cfg)
-			return
-		case strings.HasSuffix(os.Args[1], "help"):
-			fmt.Println(usage)
-			flag.PrintDefaults()
-			return
+			ExecuteTestCommand(args[1:], testFlagSet, cfg)
+			return nil
+		case strings.HasSuffix(args[0], "help"):
+			fmt.Fprintln(stdout, usage)
+			flagSet := flag.NewFlagSet(appname, flag.ContinueOnError)
+			flagSet.SetOutput(stdout)
+			addCommandFlags(flagSet, cfg)
+			flagSet.PrintDefaults()
+			return nil
 		}
 	}
 
 	// Parse argument flags
-	signerName := flag.String("signer", defaultString(cfg.SignerName, DEFAULT_SIGNER_NAME), "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
-	endpoint := flag.String("endpoint", cfg.Endpoint, "Target destination URL to send the certificate sign request (leave it empty to use default)")
-	caURL := flag.String("ca", cfg.CAURL, "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
-
-	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
-	userNameClaim := flag.String("claim", defaultString(cfg.UserClaim, oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM), "JWT Claim Name to extract the user name")
-
-	dnsarg := flag.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
-	emailarg := flag.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
-	iparg := flag.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
-	uriarg := flag.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
-
-	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
-
-	responseMode := flag.String("response-mode", defaultString(cfg.ResponseMode, "form_post"), "OAuth2 response_mode (\"query\" or \"form_post\")")
-
-	flag.Parse()
+	flagSet := flag.NewFlagSet(appname, flag.ContinueOnError)
+	flagSet.SetOutput(stdout)
+	signerName, endpoint, caURL, commonName, userNameClaim, dnsarg, emailarg, iparg, uriarg, debug, responseMode := addCommandFlags(flagSet, cfg)
+	if err := flagSet.Parse(args); err != nil {
+		return err
+	}
 
 	var accesstoken, attestationData string
 	var err error
 	switch *signerName {
 	case "zts":
 		if *commonName == "" {
-			attestationData, accesstoken, err = oidc.GetAuthAttestationDataAndAccessToken(responseMode, debug)
+			attestationData, accesstoken, err = getAuthAttestationDataAndAccessTok(responseMode, debug)
 			if err != nil || accesstoken == "" || attestationData == "" {
-				fmt.Printf("Failed to get OIDC authentication data: %s\n", err)
-				os.Exit(1)
+				return fmt.Errorf("Failed to get OIDC authentication data: %v", err)
 			}
 		} else {
-			attestationData, err = oidc.GetAuthAttestationData(responseMode, debug)
+			attestationData, err = getAuthAttestationData(responseMode, debug)
 			if err != nil || attestationData == "" {
-				fmt.Printf("Failed to get OIDC attestation data: %s\n", err)
-				os.Exit(1)
+				return fmt.Errorf("Failed to get OIDC attestation data: %v", err)
 			}
 		}
 	default:
-		accesstoken, err = oidc.GetAuthAccessToken(responseMode, debug)
+		accesstoken, err = getAuthAccessToken(responseMode, debug)
 		if err != nil || accesstoken == "" {
-			fmt.Printf("Failed to get access token: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get access token: %v", err)
 		}
 	}
 	if *debug {
 		if accesstoken != "" {
-			fmt.Printf("Access Token retrieved Successfully:\n%s\n", accesstoken)
+			fmt.Fprintf(stdout, "Access Token retrieved Successfully:\n%s\n", accesstoken)
 		}
 		if attestationData != "" {
-			fmt.Printf("OIDC attestation data:\n%s\n", attestationData)
+			fmt.Fprintf(stdout, "OIDC attestation data:\n%s\n", attestationData)
 		}
 	}
 
 	if *commonName == "" {
-		username, err := oidc.GetUserNameFromAccessToken(accesstoken, *userNameClaim)
+		username, err := getUserNameFromAccessToken(accesstoken, *userNameClaim)
 		if err != nil {
-			fmt.Printf("Failed to extract Athenz User Name from Access Token: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to extract Athenz User Name from Access Token: %v", err)
 		}
 		*commonName = certificate.DEFAULT_ATHENZ_USER_PREFIX + username
 		if *debug {
-			fmt.Printf("Athenz User Name is: %s\n", *commonName)
+			fmt.Fprintf(stdout, "Athenz User Name is: %s\n", *commonName)
 		}
 	}
 
-	err, key, csrPEM := certificate.GenerateCSR("", commonName, dnsarg, emailarg, iparg, uriarg)
+	err, key, csrPEM := generateCSR("", commonName, dnsarg, emailarg, iparg, uriarg)
 	if err != nil {
-		fmt.Printf("Failed to generate csr: %s\n", err)
-		os.Exit(1)
+		return fmt.Errorf("Failed to generate csr: %v", err)
 	}
 	csr := strings.TrimSuffix(string(pem.EncodeToMemory(csrPEM)), "\n")
 	if *debug {
-		fmt.Printf("Generated csr:\n%s\n", csr)
+		fmt.Fprintf(stdout, "Generated csr:\n%s\n", csr)
 	}
 
 	resolveSignerEndpointCA(signerName, endpoint, caURL)
 	if *debug {
-		fmt.Printf("Signer URL is set as:%s\n", *endpoint)
-		fmt.Printf("Signer CA URL is set as:%s\n", *caURL)
+		fmt.Fprintf(stdout, "Signer URL is set as:%s\n", *endpoint)
+		fmt.Fprintf(stdout, "Signer CA URL is set as:%s\n", *caURL)
 	}
 
 	var cert, cacert string
 	switch *signerName {
 	case "crypki":
-		err, cert = signer.SendCrypkiCSR(*endpoint, csr, &map[string][]string{
+		err, cert = sendCrypkiCSR(*endpoint, csr, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
-			fmt.Printf("Failed to get signed certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get signed certificate: %v", err)
 		}
 		if *debug {
-			fmt.Printf("Signed certificate:\n%s\n", cert)
+			fmt.Fprintf(stdout, "Signed certificate:\n%s\n", cert)
 		}
-		err, cacert = signer.GetCrypkiRootCA(false, *caURL, &map[string][]string{
+		err, cacert = getCrypkiRootCA(false, *caURL, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
-			fmt.Printf("Failed to get ca certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
 		if *debug {
-			fmt.Printf("CA certificate:\n%s\n", cacert)
+			fmt.Fprintf(stdout, "CA certificate:\n%s\n", cacert)
 		}
 	case "cfssl":
-		err, cert = signer.SendCFSSLCSR(*endpoint, csr, &map[string][]string{
+		err, cert = sendCFSSLCSR(*endpoint, csr, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
-			fmt.Printf("Failed to get signed certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get signed certificate: %v", err)
 		}
 		if *debug {
-			fmt.Printf("Signed certificate:\n%s\n", cert)
+			fmt.Fprintf(stdout, "Signed certificate:\n%s\n", cert)
 		}
-		err, cacert = signer.GetCFSSLRootCA(false, *caURL, &map[string][]string{
+		err, cacert = getCFSSLRootCA(false, *caURL, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
-			fmt.Printf("Failed to get ca certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
 		if *debug {
-			fmt.Printf("CA certificate:\n%s\n", cacert)
+			fmt.Fprintf(stdout, "CA certificate:\n%s\n", cacert)
 		}
 	case "zts":
-		err, cert = signer.SendZTSCSR(*commonName, *endpoint, csr, attestationData, *caURL, nil)
+		err, cert = sendZTSCSR(*commonName, *endpoint, csr, attestationData, *caURL, nil)
 		if err != nil {
-			fmt.Printf("Failed to get signed certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get signed certificate: %v", err)
 		}
 		if *debug {
-			fmt.Printf("Signed certificate:\n%s\n", cert)
+			fmt.Fprintf(stdout, "Signed certificate:\n%s\n", cert)
 		}
-		err, cacert = signer.GetZTSRootCA(false, *caURL, nil)
+		err, cacert = getZTSRootCA(false, *caURL, nil)
 		if err != nil {
-			fmt.Printf("Failed to get ca certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
 		if *debug {
-			fmt.Printf("CA certificate:\n%s\n", cacert)
+			fmt.Fprintf(stdout, "CA certificate:\n%s\n", cacert)
 		}
 	}
 
-	keyPEM, err := certificate.PrivateKeyToPEM(*key)
+	keyPEM, err := privateKeyToPEM(*key)
 	if err != nil {
-		fmt.Printf("Failed to convert X.509 certificate key to PEM string: %s", err)
-		os.Exit(1)
+		return fmt.Errorf("Failed to convert X.509 certificate key to PEM string: %v", err)
 	}
-	keyDestination := certificate.UserKeyPath()
-	err = certificate.WritePEM(keyPEM, keyDestination)
+	keyDestination := userKeyPath()
+	err = writePEMFile(keyPEM, keyDestination)
 	if err != nil {
-		fmt.Printf("Failed to save X.509 certificate key to %s: %s", keyDestination, err)
-		os.Exit(1)
+		return fmt.Errorf("Failed to save X.509 certificate key to %s: %v", keyDestination, err)
 	}
 
-	certDestination := certificate.UserCertPath()
-	err = os.WriteFile(certDestination, []byte(cert), 0600)
+	certDestination := userCertPath()
+	err = writeOutputFile(certDestination, []byte(cert), 0600)
 	if err != nil {
-		fmt.Printf("Failed to save X.509 certificate to %s: %s", certDestination, err)
-		os.Exit(1)
+		return fmt.Errorf("Failed to save X.509 certificate to %s: %v", certDestination, err)
 	}
-	caCertDestination := certificate.CACertPath()
+	caCertDestination := caCertPath()
 
 	if cacert != "" {
-		err = os.WriteFile(caCertDestination, []byte(cacert), 0600)
+		err = writeOutputFile(caCertDestination, []byte(cacert), 0600)
 		if err != nil {
-			fmt.Printf("Failed to save X.509 CA certificate to %s: %s", caCertDestination, err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to save X.509 CA certificate to %s: %v", caCertDestination, err)
 		}
 	}
 
-	fmt.Printf("Signed Athenz User certificate key is successfully stored at: \t%s\n", keyDestination)
-	fmt.Printf("Signed Athenz User certificate is successfully stored at: \t%s\n", certDestination)
+	fmt.Fprintf(stdout, "Signed Athenz User certificate key is successfully stored at: \t%s\n", keyDestination)
+	fmt.Fprintf(stdout, "Signed Athenz User certificate is successfully stored at: \t%s\n", certDestination)
 	if cacert != "" {
-		fmt.Printf("Signed Athenz CA certificate is successfully stored at: \t%s\n", caCertDestination)
+		fmt.Fprintf(stdout, "Signed Athenz CA certificate is successfully stored at: \t%s\n", caCertDestination)
 	} else {
-		fmt.Printf("Signed Athenz CA certificate was not updated. Use -ca with a local PEM path or CA endpoint if you need to refresh %s\n", caCertDestination)
+		fmt.Fprintf(stdout, "Signed Athenz CA certificate was not updated. Use -ca with a local PEM path or CA endpoint if you need to refresh %s\n", caCertDestination)
 	}
+
+	return nil
+}
+
+func addCommandFlags(flagSet *flag.FlagSet, cfg *appconfig.Settings) (signerName, endpoint, caURL, commonName, userNameClaim, dnsarg, emailarg, iparg, uriarg *string, debug *bool, responseMode *string) {
+	signerName = flagSet.String("signer", defaultString(cfg.SignerName, DEFAULT_SIGNER_NAME), "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
+	endpoint = flagSet.String("endpoint", cfg.Endpoint, "Target destination URL to send the certificate sign request (leave it empty to use default)")
+	caURL = flagSet.String("ca", cfg.CAURL, "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
+
+	commonName = flagSet.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
+	userNameClaim = flagSet.String("claim", defaultString(cfg.UserClaim, oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM), "JWT Claim Name to extract the user name")
+
+	dnsarg = flagSet.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
+	emailarg = flagSet.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
+	iparg = flagSet.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
+	uriarg = flagSet.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
+
+	debug = flagSet.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
+
+	responseMode = flagSet.String("response-mode", defaultString(cfg.ResponseMode, "form_post"), "OAuth2 response_mode (\"query\" or \"form_post\")")
+	return
 }
 
 func defaultString(value, fallback string) string {

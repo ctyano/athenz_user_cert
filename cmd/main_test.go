@@ -1,6 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"encoding/pem"
 	"flag"
 	"io"
 	"net/http"
@@ -89,6 +94,268 @@ func TestExecuteTestCommand(t *testing.T) {
 				t.Fatalf("expected success output, got %q", output)
 			}
 		})
+	}
+}
+
+func TestExecuteHelp(t *testing.T) {
+	var output bytes.Buffer
+
+	if err := execute([]string{"help"}, &output, &appconfig.Settings{}); err != nil {
+		t.Fatalf("execute returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), "Usage of "+DEFAULT_APP_NAME) {
+		t.Fatalf("expected help output, got %q", output.String())
+	}
+	if !strings.Contains(output.String(), "-signer") {
+		t.Fatalf("expected help flags in output, got %q", output.String())
+	}
+}
+
+func TestExecuteSignerFlows(t *testing.T) {
+	tests := []struct {
+		name            string
+		args            []string
+		wantCommonName  string
+		wantCert        string
+		wantCACert      string
+		wantAccessToken string
+		wantCAUpdated   bool
+		setup           func(*testing.T)
+	}{
+		{
+			name:            "crypki",
+			args:            []string{"-signer", "crypki", "-debug"},
+			wantCommonName:  "user.alice",
+			wantCert:        "crypki-cert",
+			wantCACert:      "crypki-ca",
+			wantAccessToken: "cached-token",
+			wantCAUpdated:   true,
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				sendCrypkiCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+					return nil, "crypki-cert"
+				}
+				getCrypkiRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return nil, "crypki-ca"
+				}
+			},
+		},
+		{
+			name:            "cfssl",
+			args:            []string{"-signer", "cfssl"},
+			wantCommonName:  "user.alice",
+			wantCert:        "cfssl-cert",
+			wantCACert:      "cfssl-ca",
+			wantAccessToken: "cached-token",
+			wantCAUpdated:   true,
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+					return nil, "cfssl-cert"
+				}
+				getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return nil, "cfssl-ca"
+				}
+			},
+		},
+		{
+			name:            "zts with derived common name",
+			args:            []string{"-signer", "zts", "-debug"},
+			wantCommonName:  "user.alice",
+			wantCert:        "zts-cert",
+			wantCACert:      "",
+			wantAccessToken: "cached-token",
+			wantCAUpdated:   false,
+			setup: func(t *testing.T) {
+				getAuthAttestationDataAndAccessTok = func(responseMode *string, debug *bool) (string, string, error) {
+					return "code=test-code", "cached-token", nil
+				}
+				sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+					if attestationData != "code=test-code" {
+						t.Fatalf("expected attestation data, got %q", attestationData)
+					}
+					return nil, "zts-cert"
+				}
+				getZTSRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return nil, ""
+				}
+			},
+		},
+		{
+			name:            "zts with explicit common name",
+			args:            []string{"-signer", "zts", "-cn", "custom.name"},
+			wantCommonName:  "custom.name",
+			wantCert:        "zts-cert",
+			wantCACert:      "zts-ca",
+			wantAccessToken: "",
+			wantCAUpdated:   true,
+			setup: func(t *testing.T) {
+				getAuthAttestationData = func(responseMode *string, debug *bool) (string, error) {
+					return "code=test-code", nil
+				}
+				getUserNameFromAccessToken = func(rawJWT, userNameClaim string) (string, error) {
+					t.Fatal("did not expect username extraction when common name is provided")
+					return "", nil
+				}
+				sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+					return nil, "zts-cert"
+				}
+				getZTSRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return nil, "zts-ca"
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := saveCmdGlobals()
+			defer restore()
+			installDefaultCommandStubs(t)
+			tt.setup(t)
+
+			var writtenFiles = map[string]string{}
+			writeOutputFile = func(path string, data []byte, perm os.FileMode) error {
+				writtenFiles[path] = string(data)
+				return nil
+			}
+
+			var sentCommonName string
+			generateCSR = func(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *crypto.PrivateKey, *pem.Block) {
+				sentCommonName = *cn
+				privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+				if err != nil {
+					t.Fatalf("failed to generate test private key: %v", err)
+				}
+				var key crypto.PrivateKey = privateKey
+				return nil, &key, &pem.Block{Type: "CERTIFICATE REQUEST", Bytes: []byte("csr-payload")}
+			}
+
+			var output bytes.Buffer
+			err := execute(tt.args, &output, &appconfig.Settings{})
+			if err != nil {
+				t.Fatalf("execute returned error: %v", err)
+			}
+
+			if sentCommonName != tt.wantCommonName {
+				t.Fatalf("expected common name %q, got %q", tt.wantCommonName, sentCommonName)
+			}
+			if got := writtenFiles[userCertPath()]; got != tt.wantCert {
+				t.Fatalf("expected written certificate %q, got %q", tt.wantCert, got)
+			}
+			if tt.wantCAUpdated {
+				if got := writtenFiles[caCertPath()]; got != tt.wantCACert {
+					t.Fatalf("expected written CA certificate %q, got %q", tt.wantCACert, got)
+				}
+			} else if _, ok := writtenFiles[caCertPath()]; ok {
+				t.Fatalf("did not expect CA certificate to be written")
+			}
+			if !strings.Contains(output.String(), "Signed Athenz User certificate is successfully stored at:") {
+				t.Fatalf("expected success output, got %q", output.String())
+			}
+		})
+	}
+}
+
+func TestExecuteReturnsError(t *testing.T) {
+	restore := saveCmdGlobals()
+	defer restore()
+	installDefaultCommandStubs(t)
+
+	getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+		return "cached-token", nil
+	}
+	sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+		return io.EOF, ""
+	}
+
+	var output bytes.Buffer
+	err := execute([]string{"-signer", "cfssl"}, &output, &appconfig.Settings{})
+	if err == nil {
+		t.Fatal("expected execute to return an error")
+	}
+	if !strings.Contains(err.Error(), "Failed to get signed certificate") {
+		t.Fatalf("expected signer error, got %v", err)
+	}
+}
+
+func installDefaultCommandStubs(t *testing.T) {
+	t.Helper()
+
+	getAuthAttestationData = func(responseMode *string, debug *bool) (string, error) {
+		return "", io.EOF
+	}
+	getAuthAttestationDataAndAccessTok = func(responseMode *string, debug *bool) (string, string, error) {
+		return "", "", io.EOF
+	}
+	getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+		return "", io.EOF
+	}
+	getUserNameFromAccessToken = func(rawJWT, userNameClaim string) (string, error) {
+		if rawJWT == "" {
+			t.Fatal("expected access token for username extraction")
+		}
+		return "alice", nil
+	}
+	privateKeyToPEM = func(priv crypto.PrivateKey) (*pem.Block, error) {
+		return &pem.Block{Type: "PRIVATE KEY", Bytes: []byte("key")}, nil
+	}
+	writePEMFile = func(block *pem.Block, path string) error { return nil }
+	userKeyPath = func() string { return "/tmp/user.key.pem" }
+	userCertPath = func() string { return "/tmp/user.cert.pem" }
+	caCertPath = func() string { return "/tmp/ca.cert.pem" }
+	writeOutputFile = func(path string, data []byte, perm os.FileMode) error { return nil }
+	sendCrypkiCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) { return io.EOF, "" }
+	getCrypkiRootCA = func(test bool, source string, headers *map[string][]string) (error, string) { return io.EOF, "" }
+	sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) { return io.EOF, "" }
+	getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) { return io.EOF, "" }
+	sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+		return io.EOF, ""
+	}
+	getZTSRootCA = func(test bool, source string, headers *map[string][]string) (error, string) { return io.EOF, "" }
+}
+
+func saveCmdGlobals() func() {
+	savedGetAuthAttestationData := getAuthAttestationData
+	savedGetAuthAttestationDataAndAccessTok := getAuthAttestationDataAndAccessTok
+	savedGetAuthAccessToken := getAuthAccessToken
+	savedGetUserNameFromAccessToken := getUserNameFromAccessToken
+	savedGenerateCSR := generateCSR
+	savedPrivateKeyToPEM := privateKeyToPEM
+	savedWritePEMFile := writePEMFile
+	savedUserKeyPath := userKeyPath
+	savedUserCertPath := userCertPath
+	savedCACertPath := caCertPath
+	savedWriteOutputFile := writeOutputFile
+	savedSendCrypkiCSR := sendCrypkiCSR
+	savedGetCrypkiRootCA := getCrypkiRootCA
+	savedSendCFSSLCSR := sendCFSSLCSR
+	savedGetCFSSLRootCA := getCFSSLRootCA
+	savedSendZTSCSR := sendZTSCSR
+	savedGetZTSRootCA := getZTSRootCA
+
+	return func() {
+		getAuthAttestationData = savedGetAuthAttestationData
+		getAuthAttestationDataAndAccessTok = savedGetAuthAttestationDataAndAccessTok
+		getAuthAccessToken = savedGetAuthAccessToken
+		getUserNameFromAccessToken = savedGetUserNameFromAccessToken
+		generateCSR = savedGenerateCSR
+		privateKeyToPEM = savedPrivateKeyToPEM
+		writePEMFile = savedWritePEMFile
+		userKeyPath = savedUserKeyPath
+		userCertPath = savedUserCertPath
+		caCertPath = savedCACertPath
+		writeOutputFile = savedWriteOutputFile
+		sendCrypkiCSR = savedSendCrypkiCSR
+		getCrypkiRootCA = savedGetCrypkiRootCA
+		sendCFSSLCSR = savedSendCFSSLCSR
+		getCFSSLRootCA = savedGetCFSSLRootCA
+		sendZTSCSR = savedSendZTSCSR
+		getZTSRootCA = savedGetZTSRootCA
 	}
 }
 
