@@ -233,6 +233,7 @@ func parseZTSRootCAResponse(body []byte, source string, test bool) (string, erro
 	}
 
 	var response struct {
+		Name                  string `json:"name"`
 		X509CertificateSigner string `json:"x509CertificateSigner"`
 		CACertBundle          string `json:"caCertBundle"`
 		CACertificates        string `json:"caCertificates"`

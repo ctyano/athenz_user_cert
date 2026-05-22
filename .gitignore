@@ -1,6 +1,6 @@
 *.backup
-go.sum
 athenzusercert
 dist
 coverage.*
 .gocache
+.gomodcache

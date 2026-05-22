@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ctyano/athenz-user-cert/pkg/certificate"
+	appconfig "github.com/ctyano/athenz-user-cert/pkg/config"
 	"github.com/ctyano/athenz-user-cert/pkg/oidc"
 	"github.com/ctyano/athenz-user-cert/pkg/signer"
 )
@@ -19,6 +20,11 @@ var (
 
 func main() {
 	appname := DEFAULT_APP_NAME
+	cfg, loadErr := appconfig.Load()
+	if loadErr != nil {
+		fmt.Printf("Failed to load configuration: %s\n", loadErr)
+		os.Exit(1)
+	}
 
 	usage := fmt.Sprintf(`Usage of %s:
   Generate certificate signing request and send the csr to the server.
@@ -41,7 +47,7 @@ Options:
 			return
 		case strings.HasSuffix(os.Args[1], "test"):
 			testFlagSet := flag.NewFlagSet("test", flag.ExitOnError)
-			ExecuteTestCommand(os.Args[2:], testFlagSet)
+			ExecuteTestCommand(os.Args[2:], testFlagSet, cfg)
 			return
 		case strings.HasSuffix(os.Args[1], "help"):
 			fmt.Println(usage)
@@ -51,12 +57,12 @@ Options:
 	}
 
 	// Parse argument flags
-	signerName := flag.String("signer", DEFAULT_SIGNER_NAME, "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
-	endpoint := flag.String("endpoint", "", "Target destination URL to send the certificate sign request (leave it empty to use default)")
-	caURL := flag.String("ca", "", "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
+	signerName := flag.String("signer", defaultString(cfg.SignerName, DEFAULT_SIGNER_NAME), "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
+	endpoint := flag.String("endpoint", cfg.Endpoint, "Target destination URL to send the certificate sign request (leave it empty to use default)")
+	caURL := flag.String("ca", cfg.CAURL, "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
 
 	commonName := flag.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
-	userNameClaim := flag.String("claim", oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM, "JWT Claim Name to extract the user name")
+	userNameClaim := flag.String("claim", defaultString(cfg.UserClaim, oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM), "JWT Claim Name to extract the user name")
 
 	dnsarg := flag.String("dns", "", "Comma-separated SANs(Subject Alternative Names) as hostnames for the certificate")
 	emailarg := flag.String("email", "", "Comma-separated SANs(Subject Alternative Names) as Emails for the certificate")
@@ -65,7 +71,7 @@ Options:
 
 	debug := flag.Bool("debug", false, "Print the access token to send the Certificate Siginig Request")
 
-	responseMode := flag.String("response-mode", "form_post", "OAuth2 response_mode (\"query\" or \"form_post\")")
+	responseMode := flag.String("response-mode", defaultString(cfg.ResponseMode, "form_post"), "OAuth2 response_mode (\"query\" or \"form_post\")")
 
 	flag.Parse()
 
@@ -124,29 +130,7 @@ Options:
 		fmt.Printf("Generated csr:\n%s\n", csr)
 	}
 
-	switch *signerName {
-	case "crypki":
-		if *endpoint == "" {
-			*endpoint = signer.DEFAULT_SIGNER_CRYPKI_SIGN_URL
-		}
-		if *caURL == "" {
-			*caURL = signer.DEFAULT_SIGNER_CRYPKI_CA_URL
-		}
-	case "cfssl":
-		if *endpoint == "" {
-			*endpoint = signer.DEFAULT_SIGNER_CFSSL_SIGN_URL
-		}
-		if *caURL == "" {
-			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
-		}
-	case "zts":
-		if *endpoint == "" {
-			*endpoint = signer.DEFAULT_SIGNER_ZTS_SIGN_URL
-		}
-		if *caURL == "" {
-			*caURL = signer.DEFAULT_SIGNER_ZTS_CA_URL
-		}
-	}
+	resolveSignerEndpointCA(signerName, endpoint, caURL)
 	if *debug {
 		fmt.Printf("Signer URL is set as:%s\n", *endpoint)
 		fmt.Printf("Signer CA URL is set as:%s\n", *caURL)
@@ -249,5 +233,38 @@ Options:
 		fmt.Printf("Signed Athenz CA certificate is successfully stored at: \t%s\n", caCertDestination)
 	} else {
 		fmt.Printf("Signed Athenz CA certificate was not updated. Use -ca with a local PEM path or CA endpoint if you need to refresh %s\n", caCertDestination)
+	}
+}
+
+func defaultString(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
+}
+
+func resolveSignerEndpointCA(signerName, endpoint, caURL *string) {
+	switch *signerName {
+	case "crypki":
+		if *endpoint == "" {
+			*endpoint = signer.DEFAULT_SIGNER_CRYPKI_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_CRYPKI_CA_URL
+		}
+	case "cfssl":
+		if *endpoint == "" {
+			*endpoint = signer.DEFAULT_SIGNER_CFSSL_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
+		}
+	case "zts":
+		if *endpoint == "" {
+			*endpoint = signer.DEFAULT_SIGNER_ZTS_SIGN_URL
+		}
+		if *caURL == "" {
+			*caURL = signer.DEFAULT_SIGNER_ZTS_CA_URL
+		}
 	}
 }
