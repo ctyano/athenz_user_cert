@@ -3,14 +3,20 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	appconfig "github.com/ctyano/athenz-user-cert/pkg/config"
-	"github.com/ctyano/athenz-user-cert/pkg/signer"
 )
 
 func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet, cfg *appconfig.Settings) {
+	if err := executeTestCommand(arg, testFlagSet, os.Stdout, cfg); err != nil {
+		fmt.Fprintf(os.Stdout, "%v\n", err)
+		exitFunc(1)
+	}
+}
 
+func executeTestCommand(arg []string, testFlagSet *flag.FlagSet, stdout io.Writer, cfg *appconfig.Settings) error {
 	// Parse argument flags
 	signerName := testFlagSet.String("signer", defaultString(cfg.SignerName, DEFAULT_SIGNER_NAME), "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
 	endpoint := testFlagSet.String("endpoint", cfg.Endpoint, "Target destination URL to send the certificate sign request (leave it empty to use default)")
@@ -22,28 +28,26 @@ func ExecuteTestCommand(arg []string, testFlagSet *flag.FlagSet, cfg *appconfig.
 
 	resolveSignerEndpointCA(signerName, endpoint, caURL)
 	if *debug {
-		fmt.Printf("Signer URL is set as:%s\n", *endpoint)
-		fmt.Printf("Signer CA URL is set as:%s\n", *caURL)
+		fmt.Fprintf(stdout, "Signer URL is set as:%s\n", *endpoint)
+		fmt.Fprintf(stdout, "Signer CA URL is set as:%s\n", *caURL)
 	}
 	switch *signerName {
 	case "crypki":
-		err, _ := signer.GetCrypkiRootCA(true, *caURL, &map[string][]string{})
+		err, _ := getCrypkiRootCA(true, *caURL, &map[string][]string{})
 		if err != nil {
-			fmt.Printf("Failed to get ca certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
 	case "cfssl":
-		err, _ := signer.GetCFSSLRootCA(true, *caURL, &map[string][]string{})
+		err, _ := getCFSSLRootCA(true, *caURL, &map[string][]string{})
 		if err != nil {
-			fmt.Printf("Failed to get ca certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
 	case "zts":
-		err, _ := signer.GetZTSRootCA(true, *caURL, &map[string][]string{})
+		err, _ := getZTSRootCA(true, *caURL, &map[string][]string{})
 		if err != nil {
-			fmt.Printf("Failed to get ca certificate: %s\n", err)
-			os.Exit(1)
+			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
 	}
-	fmt.Printf("%s test complete\n", DEFAULT_APP_NAME)
+	fmt.Fprintf(stdout, "%s test complete\n", DEFAULT_APP_NAME)
+	return nil
 }

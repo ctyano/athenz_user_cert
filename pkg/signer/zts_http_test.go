@@ -2,8 +2,10 @@ package signer
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,6 +93,65 @@ func TestSendZTSCSRHandlesErrorResponse(t *testing.T) {
 	}
 }
 
+func TestSendZTSCSRAdditionalErrors(t *testing.T) {
+	t.Run("invalid request url", func(t *testing.T) {
+		if err, _ := SendZTSCSR("athenz.user", "://bad-url", "csr-data", "code=test-code", "", nil); err == nil {
+			t.Fatal("expected invalid URL to return an error")
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		originalDefaultCAURL := DEFAULT_SIGNER_ZTS_CA_URL
+		DEFAULT_SIGNER_ZTS_CA_URL = filepath.Join(t.TempDir(), "missing-ca.pem")
+		t.Cleanup(func() {
+			DEFAULT_SIGNER_ZTS_CA_URL = originalDefaultCAURL
+		})
+
+		restore := stubZTSDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return nil, io.EOF
+		})
+		defer restore()
+
+		if err, _ := SendZTSCSR("athenz.user", "https://zts.example/usercert", "csr-data", "code=test-code", "", nil); err == nil {
+			t.Fatal("expected transport error")
+		}
+	})
+
+	t.Run("unknown authority transport error", func(t *testing.T) {
+		originalDefaultCAURL := DEFAULT_SIGNER_ZTS_CA_URL
+		DEFAULT_SIGNER_ZTS_CA_URL = filepath.Join(t.TempDir(), "missing-ca.pem")
+		t.Cleanup(func() {
+			DEFAULT_SIGNER_ZTS_CA_URL = originalDefaultCAURL
+		})
+
+		restore := stubZTSDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return nil, errors.New("x509: certificate signed by unknown authority")
+		})
+		defer restore()
+
+		if err, _ := SendZTSCSR("athenz.user", "https://zts.example/usercert", "csr-data", "code=test-code", "", nil); err == nil || !strings.Contains(err.Error(), "set -ca") {
+			t.Fatalf("expected unknown authority hint, got %v", err)
+		}
+	})
+
+	t.Run("invalid json response", func(t *testing.T) {
+		originalDefaultCAURL := DEFAULT_SIGNER_ZTS_CA_URL
+		DEFAULT_SIGNER_ZTS_CA_URL = filepath.Join(t.TempDir(), "missing-ca.pem")
+		t.Cleanup(func() {
+			DEFAULT_SIGNER_ZTS_CA_URL = originalDefaultCAURL
+		})
+
+		restore := stubZTSDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, `{`), nil
+		})
+		defer restore()
+
+		if err, _ := SendZTSCSR("athenz.user", "https://zts.example/usercert", "csr-data", "code=test-code", "", nil); err == nil {
+			t.Fatal("expected invalid JSON response")
+		}
+	})
+}
+
 func TestGetZTSRootCAFetchesRemoteBundle(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
@@ -141,6 +202,90 @@ func TestGetZTSRootCAHandlesErrorResponse(t *testing.T) {
 	if !strings.Contains(err.Error(), "Received non-OK status") {
 		t.Fatalf("expected HTTP status error, got %v", err)
 	}
+}
+
+func TestGetZTSRootCAAdditionalPaths(t *testing.T) {
+	t.Run("empty source", func(t *testing.T) {
+		if err, cert := GetZTSRootCA(false, "", nil); err != nil || cert != "" {
+			t.Fatalf("expected empty source to return empty bundle, cert=%q err=%v", cert, err)
+		}
+	})
+
+	t.Run("read response body error", func(t *testing.T) {
+		originalDefaultCAURL := DEFAULT_SIGNER_ZTS_CA_URL
+		DEFAULT_SIGNER_ZTS_CA_URL = filepath.Join(t.TempDir(), "missing-ca.pem")
+		t.Cleanup(func() {
+			DEFAULT_SIGNER_ZTS_CA_URL = originalDefaultCAURL
+		})
+
+		restore := stubZTSDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     http.StatusText(http.StatusOK),
+				Header:     make(http.Header),
+				Body:       io.NopCloser(errReader{}),
+				Request:    &http.Request{URL: r.URL},
+				ProtoMajor: 1,
+				ProtoMinor: 1,
+			}, nil
+		})
+		defer restore()
+
+		if err, _ := GetZTSRootCA(false, "https://zts.example/ca", nil); err == nil {
+			t.Fatal("expected response body read error")
+		}
+	})
+
+	t.Run("invalid request url", func(t *testing.T) {
+		if err, _ := GetZTSRootCA(false, "://bad-url", nil); err == nil {
+			t.Fatal("expected invalid URL to return an error")
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		originalDefaultCAURL := DEFAULT_SIGNER_ZTS_CA_URL
+		DEFAULT_SIGNER_ZTS_CA_URL = filepath.Join(t.TempDir(), "missing-ca.pem")
+		t.Cleanup(func() {
+			DEFAULT_SIGNER_ZTS_CA_URL = originalDefaultCAURL
+		})
+
+		restore := stubZTSDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return nil, io.EOF
+		})
+		defer restore()
+
+		if err, _ := GetZTSRootCA(false, "https://zts.example/ca", nil); err == nil {
+			t.Fatal("expected transport error")
+		}
+	})
+}
+
+func TestReadZTSRootCAAndClientErrors(t *testing.T) {
+	t.Run("empty local file", func(t *testing.T) {
+		caPath := filepath.Join(t.TempDir(), "empty-ca.pem")
+		if err := os.WriteFile(caPath, nil, 0600); err != nil {
+			t.Fatalf("failed to write empty CA file: %v", err)
+		}
+		if got, err := readZTSRootCA(caPath); err != nil || got != "" {
+			t.Fatalf("expected empty CA bundle, got %q err=%v", got, err)
+		}
+	})
+
+	t.Run("missing custom local file", func(t *testing.T) {
+		if _, err := readZTSRootCA(filepath.Join(t.TempDir(), "missing-ca.pem")); err == nil {
+			t.Fatal("expected missing custom CA file to return an error")
+		}
+	})
+
+	t.Run("invalid CA bundle", func(t *testing.T) {
+		caPath := filepath.Join(t.TempDir(), "invalid-ca.pem")
+		if err := os.WriteFile(caPath, []byte("not-a-cert"), 0600); err != nil {
+			t.Fatalf("failed to write invalid CA file: %v", err)
+		}
+		if _, err := newZTSHTTPClient(caPath); err == nil {
+			t.Fatal("expected invalid CA bundle to return an error")
+		}
+	})
 }
 
 func TestParseZTSRootCAResponseAdditionalVariants(t *testing.T) {
@@ -212,4 +357,10 @@ func stubZTSDefaultTransport(t *testing.T, roundTrip func(*http.Request) (*http.
 	return func() {
 		http.DefaultTransport = original
 	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) {
+	return 0, io.EOF
 }

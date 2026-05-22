@@ -1,9 +1,12 @@
 package certificate
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/pem"
 	"os"
 	"path/filepath"
@@ -100,6 +103,12 @@ func TestKeyAlgorithmsAndUsage(t *testing.T) {
 	if err, _ := keyUsageFromAlgorithm(x509.UnknownPublicKeyAlgorithm); err == nil {
 		t.Fatal("expected unknown public key algorithm to return an error")
 	}
+	if err, usage := keyUsageFromAlgorithm(x509.DSA); err != nil || usage != x509.KeyUsageDigitalSignature {
+		t.Fatalf("expected DSA to map to digital signature usage, got usage=%v err=%v", usage, err)
+	}
+	if err, _ := keyUsageFromAlgorithm(x509.PublicKeyAlgorithm(99)); err == nil {
+		t.Fatal("expected unsupported public key algorithm to return an error")
+	}
 }
 
 func TestKeyHelperErrorPaths(t *testing.T) {
@@ -111,6 +120,25 @@ func TestKeyHelperErrorPaths(t *testing.T) {
 	}
 	if err, _ := Decrypt("not-a-private-key", "%%%"); err == nil {
 		t.Fatal("expected invalid ciphertext to return an error")
+	}
+
+	ecdsaKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate ECDSA key: %v", err)
+	}
+	if err, _ := Encrypt(&ecdsaKey.PublicKey, []byte("secret")); err == nil {
+		t.Fatal("expected unsupported public key type to return an error")
+	}
+	if err, _ := Decrypt(ecdsaKey, base64.StdEncoding.EncodeToString([]byte("ciphertext"))); err == nil {
+		t.Fatal("expected unsupported private key type to return an error")
+	}
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("failed to generate RSA key: %v", err)
+	}
+	if err, _ := Encrypt(&rsaKey.PublicKey, make([]byte, 4096)); err == nil {
+		t.Fatal("expected oversized RSA plaintext to return an error")
 	}
 }
 

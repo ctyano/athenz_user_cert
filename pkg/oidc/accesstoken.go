@@ -38,6 +38,7 @@ var (
 	buildPKCEOAuthConfigFunc           = buildPKCEOAuthConfig
 	getAuthCodeResultFunc              = getAuthCodeResult
 	exchangeAuthCodeFunc               = exchangeAuthCode
+	randomReadFunc                     = rand.Read
 )
 
 func getAccessTokenCachePath() string {
@@ -242,7 +243,7 @@ func buildPKCEOAuthConfig(authURL, tokenURL string) (*oauthConfig, error) {
 
 func generatePKCEParameters() (string, string, error) {
 	verifierBytes := make([]byte, 32)
-	if _, err := rand.Read(verifierBytes); err != nil {
+	if _, err := randomReadFunc(verifierBytes); err != nil {
 		return "", "", fmt.Errorf("failed to generate PKCE verifier: %v", err)
 	}
 
@@ -254,7 +255,7 @@ func generatePKCEParameters() (string, string, error) {
 
 func generateOAuthState() (string, error) {
 	stateBytes := make([]byte, 32)
-	if _, err := rand.Read(stateBytes); err != nil {
+	if _, err := randomReadFunc(stateBytes); err != nil {
 		return "", fmt.Errorf("failed to generate oauth state: %v", err)
 	}
 

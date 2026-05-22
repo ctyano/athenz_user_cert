@@ -36,19 +36,25 @@ var (
 	getCFSSLRootCA                     = signer.GetCFSSLRootCA
 	sendZTSCSR                         = signer.SendZTSCSR
 	getZTSRootCA                       = signer.GetZTSRootCA
+	exitFunc                           = os.Exit
 )
 
 func main() {
+	exitFunc(runMain(os.Args[1:], os.Stdout))
+}
+
+func runMain(args []string, stdout io.Writer) int {
 	cfg, loadErr := loadConfig()
 	if loadErr != nil {
-		fmt.Printf("Failed to load configuration: %s\n", loadErr)
-		os.Exit(1)
+		fmt.Fprintf(stdout, "Failed to load configuration: %s\n", loadErr)
+		return 1
 	}
 
-	if err := execute(os.Args[1:], os.Stdout, cfg); err != nil {
-		fmt.Fprintln(os.Stdout, err)
-		os.Exit(1)
+	if err := execute(args, stdout, cfg); err != nil {
+		fmt.Fprintln(stdout, err)
+		return 1
 	}
+	return 0
 }
 
 func execute(args []string, stdout io.Writer, cfg *appconfig.Settings) error {
@@ -74,8 +80,7 @@ Options:
 			return nil
 		case strings.HasSuffix(args[0], "test"):
 			testFlagSet := flag.NewFlagSet("test", flag.ExitOnError)
-			ExecuteTestCommand(args[1:], testFlagSet, cfg)
-			return nil
+			return executeTestCommand(args[1:], testFlagSet, stdout, cfg)
 		case strings.HasSuffix(args[0], "help"):
 			fmt.Fprintln(stdout, usage)
 			flagSet := flag.NewFlagSet(appname, flag.ContinueOnError)

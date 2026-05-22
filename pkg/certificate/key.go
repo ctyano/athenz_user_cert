@@ -70,7 +70,7 @@ func PublicKeyFromPrivateKey(key crypto.PrivateKey) (crypto.PublicKey, error) {
 func Encrypt(pub crypto.PublicKey, data []byte) (err error, ciphertext string) {
 	rsapub, ok := pub.(*rsa.PublicKey)
 	if !ok {
-		err = fmt.Errorf("Public key does not support encryption")
+		return fmt.Errorf("Public key does not support encryption"), ""
 	}
 	// Encryption
 	rawciphertext, e := rsa.EncryptPKCS1v15(rand.Reader, rsapub, data)
@@ -92,7 +92,7 @@ func Decrypt(priv crypto.PrivateKey, ciphertext string) (err error, data []byte)
 	}
 	decryptor, ok := priv.(crypto.Decrypter)
 	if !ok {
-		err = fmt.Errorf("Private key does not support decryption")
+		return fmt.Errorf("Private key does not support decryption"), nil
 	}
 	data, err = decryptor.Decrypt(rand.Reader, rawciphertext, nil)
 	if err != nil {

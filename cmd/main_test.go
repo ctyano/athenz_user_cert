@@ -97,6 +97,173 @@ func TestExecuteTestCommand(t *testing.T) {
 	}
 }
 
+func TestExecuteTestCommandReturnsError(t *testing.T) {
+	restore := saveCmdGlobals()
+	defer restore()
+	installDefaultCommandStubs(t)
+
+	getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+		return io.EOF, ""
+	}
+
+	var output bytes.Buffer
+	err := executeTestCommand([]string{"-signer", "cfssl"}, flag.NewFlagSet("test", flag.ContinueOnError), &output, &appconfig.Settings{})
+	if err == nil {
+		t.Fatal("expected executeTestCommand to return an error")
+	}
+	if !strings.Contains(err.Error(), "Failed to get ca certificate") {
+		t.Fatalf("expected CA retrieval error, got %v", err)
+	}
+}
+
+func TestExecuteTestCommandWrapperCallsExitOnError(t *testing.T) {
+	restore := saveCmdGlobals()
+	defer restore()
+	installDefaultCommandStubs(t)
+
+	getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+		return io.EOF, ""
+	}
+
+	exitCode := -1
+	exitFunc = func(code int) {
+		exitCode = code
+	}
+
+	output := captureStdout(t, func() {
+		ExecuteTestCommand([]string{"-signer", "cfssl"}, flag.NewFlagSet("test", flag.ContinueOnError), &appconfig.Settings{})
+	})
+	if exitCode != 1 {
+		t.Fatalf("expected exit code 1, got %d", exitCode)
+	}
+	if !strings.Contains(output, "Failed to get ca certificate") {
+		t.Fatalf("expected error output, got %q", output)
+	}
+}
+
+func TestRunMain(t *testing.T) {
+	t.Run("load config failure", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+
+		loadConfig = func() (*appconfig.Settings, error) {
+			return nil, io.EOF
+		}
+
+		var output bytes.Buffer
+		if got := runMain(nil, &output); got != 1 {
+			t.Fatalf("expected exit code 1, got %d", got)
+		}
+		if !strings.Contains(output.String(), "Failed to load configuration") {
+			t.Fatalf("expected load error output, got %q", output.String())
+		}
+	})
+
+	t.Run("execute failure", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+		installDefaultCommandStubs(t)
+
+		loadConfig = func() (*appconfig.Settings, error) {
+			return &appconfig.Settings{}, nil
+		}
+		getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+			return "", io.EOF
+		}
+
+		var output bytes.Buffer
+		if got := runMain([]string{"-signer", "cfssl"}, &output); got != 1 {
+			t.Fatalf("expected exit code 1, got %d", got)
+		}
+		if !strings.Contains(output.String(), "Failed to get access token") {
+			t.Fatalf("expected execute error output, got %q", output.String())
+		}
+	})
+
+	t.Run("success", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+		installDefaultCommandStubs(t)
+
+		loadConfig = func() (*appconfig.Settings, error) {
+			return &appconfig.Settings{}, nil
+		}
+		getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+			return "cached-token", nil
+		}
+		sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+			return nil, "cfssl-cert"
+		}
+		getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+			return nil, ""
+		}
+		generateCSR = func(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *crypto.PrivateKey, *pem.Block) {
+			privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+			if err != nil {
+				t.Fatalf("failed to generate test private key: %v", err)
+			}
+			var key crypto.PrivateKey = privateKey
+			return nil, &key, &pem.Block{Type: "CERTIFICATE REQUEST", Bytes: []byte("csr-payload")}
+		}
+
+		var output bytes.Buffer
+		if got := runMain([]string{"-signer", "cfssl"}, &output); got != 0 {
+			t.Fatalf("expected exit code 0, got %d", got)
+		}
+		if !strings.Contains(output.String(), "Signed Athenz User certificate is successfully stored at:") {
+			t.Fatalf("expected success output, got %q", output.String())
+		}
+	})
+}
+
+func TestMainUsesExitFunc(t *testing.T) {
+	restore := saveCmdGlobals()
+	defer restore()
+	installDefaultCommandStubs(t)
+
+	originalArgs := os.Args
+	os.Args = []string{"athenzusercert", "-signer", "cfssl"}
+	t.Cleanup(func() {
+		os.Args = originalArgs
+	})
+
+	loadConfig = func() (*appconfig.Settings, error) {
+		return &appconfig.Settings{}, nil
+	}
+	getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+		return "cached-token", nil
+	}
+	sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+		return nil, "cfssl-cert"
+	}
+	getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+		return nil, ""
+	}
+	generateCSR = func(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *crypto.PrivateKey, *pem.Block) {
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatalf("failed to generate test private key: %v", err)
+		}
+		var key crypto.PrivateKey = privateKey
+		return nil, &key, &pem.Block{Type: "CERTIFICATE REQUEST", Bytes: []byte("csr-payload")}
+	}
+
+	exitCode := -1
+	exitFunc = func(code int) {
+		exitCode = code
+	}
+
+	output := captureStdout(t, func() {
+		main()
+	})
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", exitCode)
+	}
+	if !strings.Contains(output, "Signed Athenz User certificate is successfully stored at:") {
+		t.Fatalf("expected success output, got %q", output)
+	}
+}
+
 func TestExecuteHelp(t *testing.T) {
 	var output bytes.Buffer
 
@@ -283,6 +450,224 @@ func TestExecuteReturnsError(t *testing.T) {
 	}
 }
 
+func TestExecuteSubcommands(t *testing.T) {
+	t.Run("version", func(t *testing.T) {
+		var output bytes.Buffer
+		if err := execute([]string{"version"}, &output, &appconfig.Settings{}); err != nil {
+			t.Fatalf("execute returned error: %v", err)
+		}
+	})
+
+	t.Run("test", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+		installDefaultCommandStubs(t)
+		getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+			return nil, ""
+		}
+
+		var output bytes.Buffer
+		if err := execute([]string{"test", "-signer", "cfssl"}, &output, &appconfig.Settings{}); err != nil {
+			t.Fatalf("execute returned error: %v", err)
+		}
+		if !strings.Contains(output.String(), DEFAULT_APP_NAME+" test complete") {
+			t.Fatalf("expected test command output, got %q", output.String())
+		}
+	})
+}
+
+func TestExecuteAdditionalErrorPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+		setup   func(*testing.T)
+	}{
+		{
+			name:    "flag parse error",
+			args:    []string{"-unknown-flag"},
+			wantErr: "flag provided but not defined",
+			setup:   func(*testing.T) {},
+		},
+		{
+			name:    "zts auth data missing",
+			args:    []string{"-signer", "zts"},
+			wantErr: "Failed to get OIDC authentication data",
+			setup: func(t *testing.T) {
+				getAuthAttestationDataAndAccessTok = func(responseMode *string, debug *bool) (string, string, error) {
+					return "", "", nil
+				}
+			},
+		},
+		{
+			name:    "zts attestation missing",
+			args:    []string{"-signer", "zts", "-cn", "custom.name"},
+			wantErr: "Failed to get OIDC attestation data",
+			setup: func(t *testing.T) {
+				getAuthAttestationData = func(responseMode *string, debug *bool) (string, error) {
+					return "", nil
+				}
+			},
+		},
+		{
+			name:    "username extraction error",
+			args:    []string{"-signer", "cfssl"},
+			wantErr: "Failed to extract Athenz User Name",
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				getUserNameFromAccessToken = func(rawJWT, userNameClaim string) (string, error) {
+					return "", io.EOF
+				}
+			},
+		},
+		{
+			name:    "generate csr error",
+			args:    []string{"-signer", "cfssl"},
+			wantErr: "Failed to generate csr",
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				generateCSR = func(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *crypto.PrivateKey, *pem.Block) {
+					return io.EOF, nil, nil
+				}
+			},
+		},
+		{
+			name:    "private key pem error",
+			args:    []string{"-signer", "cfssl"},
+			wantErr: "Failed to convert X.509 certificate key to PEM string",
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+					return nil, "cfssl-cert"
+				}
+				getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return nil, ""
+				}
+				privateKeyToPEM = func(priv crypto.PrivateKey) (*pem.Block, error) {
+					return nil, io.EOF
+				}
+			},
+		},
+		{
+			name:    "write key pem error",
+			args:    []string{"-signer", "cfssl"},
+			wantErr: "Failed to save X.509 certificate key",
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+					return nil, "cfssl-cert"
+				}
+				getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return nil, ""
+				}
+				writePEMFile = func(block *pem.Block, path string) error {
+					return io.EOF
+				}
+			},
+		},
+		{
+			name:    "write cert error",
+			args:    []string{"-signer", "cfssl"},
+			wantErr: "Failed to save X.509 certificate to",
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+					return nil, "cfssl-cert"
+				}
+				getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return nil, ""
+				}
+				writeOutputFile = func(path string, data []byte, perm os.FileMode) error {
+					if path == userCertPath() {
+						return io.EOF
+					}
+					return nil
+				}
+			},
+		},
+		{
+			name:    "write ca cert error",
+			args:    []string{"-signer", "cfssl"},
+			wantErr: "Failed to save X.509 CA certificate to",
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+					return nil, "cfssl-cert"
+				}
+				getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return nil, "cfssl-ca"
+				}
+				writeOutputFile = func(path string, data []byte, perm os.FileMode) error {
+					if path == caCertPath() {
+						return io.EOF
+					}
+					return nil
+				}
+			},
+		},
+		{
+			name:    "ca retrieval error",
+			args:    []string{"-signer", "crypki"},
+			wantErr: "Failed to get ca certificate",
+			setup: func(t *testing.T) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
+				}
+				sendCrypkiCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+					return nil, "crypki-cert"
+				}
+				getCrypkiRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+					return io.EOF, ""
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			restore := saveCmdGlobals()
+			defer restore()
+			installDefaultCommandStubs(t)
+			installSuccessfulGenerateCSR(t)
+			tt.setup(t)
+
+			var output bytes.Buffer
+			err := execute(tt.args, &output, &appconfig.Settings{})
+			if err == nil {
+				t.Fatal("expected execute to return an error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("expected error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
+func installSuccessfulGenerateCSR(t *testing.T) {
+	t.Helper()
+
+	generateCSR = func(algorithm string, cn, dnsarg, emailarg, iparg, uriarg *string) (error, *crypto.PrivateKey, *pem.Block) {
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatalf("failed to generate test private key: %v", err)
+		}
+		var key crypto.PrivateKey = privateKey
+		return nil, &key, &pem.Block{Type: "CERTIFICATE REQUEST", Bytes: []byte("csr-payload")}
+	}
+}
+
 func installDefaultCommandStubs(t *testing.T) {
 	t.Helper()
 
@@ -320,6 +705,7 @@ func installDefaultCommandStubs(t *testing.T) {
 }
 
 func saveCmdGlobals() func() {
+	savedLoadConfig := loadConfig
 	savedGetAuthAttestationData := getAuthAttestationData
 	savedGetAuthAttestationDataAndAccessTok := getAuthAttestationDataAndAccessTok
 	savedGetAuthAccessToken := getAuthAccessToken
@@ -337,8 +723,10 @@ func saveCmdGlobals() func() {
 	savedGetCFSSLRootCA := getCFSSLRootCA
 	savedSendZTSCSR := sendZTSCSR
 	savedGetZTSRootCA := getZTSRootCA
+	savedExitFunc := exitFunc
 
 	return func() {
+		loadConfig = savedLoadConfig
 		getAuthAttestationData = savedGetAuthAttestationData
 		getAuthAttestationDataAndAccessTok = savedGetAuthAttestationDataAndAccessTok
 		getAuthAccessToken = savedGetAuthAccessToken
@@ -356,6 +744,7 @@ func saveCmdGlobals() func() {
 		getCFSSLRootCA = savedGetCFSSLRootCA
 		sendZTSCSR = savedSendZTSCSR
 		getZTSRootCA = savedGetZTSRootCA
+		exitFunc = savedExitFunc
 	}
 }
 

@@ -104,6 +104,36 @@ func TestSendCFSSLCSRHandlesErrorResponse(t *testing.T) {
 	}
 }
 
+func TestSendCFSSLCSRAdditionalErrors(t *testing.T) {
+	t.Run("invalid request url", func(t *testing.T) {
+		if err, _ := SendCFSSLCSR("://bad-url", "csr-data", nil); err == nil {
+			t.Fatal("expected invalid URL to return an error")
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return nil, io.EOF
+		})
+		defer restore()
+
+		if err, _ := SendCFSSLCSR("stub://cfssl.example/sign", "csr-data", nil); err == nil {
+			t.Fatal("expected transport error")
+		}
+	})
+
+	t.Run("invalid json response", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, `{`), nil
+		})
+		defer restore()
+
+		if err, _ := SendCFSSLCSR("stub://cfssl.example/sign", "csr-data", nil); err == nil {
+			t.Fatal("expected invalid JSON response")
+		}
+	})
+}
+
 func TestGetCFSSLRootCAHandlesErrorResponse(t *testing.T) {
 	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusBadGateway, `{"error":"unavailable"}`), nil
@@ -117,6 +147,36 @@ func TestGetCFSSLRootCAHandlesErrorResponse(t *testing.T) {
 	if cert != "" {
 		t.Fatalf("expected no certificate on error, got %q", cert)
 	}
+}
+
+func TestGetCFSSLRootCAAdditionalErrors(t *testing.T) {
+	t.Run("invalid request url", func(t *testing.T) {
+		if err, _ := GetCFSSLRootCA(false, "://bad-url", nil); err == nil {
+			t.Fatal("expected invalid URL to return an error")
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return nil, io.EOF
+		})
+		defer restore()
+
+		if err, _ := GetCFSSLRootCA(false, "stub://cfssl.example/info", nil); err == nil {
+			t.Fatal("expected transport error")
+		}
+	})
+
+	t.Run("invalid json response", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, `{`), nil
+		})
+		defer restore()
+
+		if err, _ := GetCFSSLRootCA(false, "stub://cfssl.example/info", nil); err == nil {
+			t.Fatal("expected invalid JSON response")
+		}
+	})
 }
 
 func TestSendCrypkiCSR(t *testing.T) {
@@ -224,6 +284,36 @@ func TestSendCrypkiCSRHandlesErrorResponse(t *testing.T) {
 	}
 }
 
+func TestSendCrypkiCSRAdditionalErrors(t *testing.T) {
+	t.Run("invalid request url", func(t *testing.T) {
+		if err, _ := SendCrypkiCSR("://bad-url", "csr-data", nil); err == nil {
+			t.Fatal("expected invalid URL to return an error")
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return nil, io.EOF
+		})
+		defer restore()
+
+		if err, _ := SendCrypkiCSR("stub://crypki.example/sign", "csr-data", nil); err == nil {
+			t.Fatal("expected transport error")
+		}
+	})
+
+	t.Run("invalid json response", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, `{`), nil
+		})
+		defer restore()
+
+		if err, _ := SendCrypkiCSR("stub://crypki.example/sign", "csr-data", nil); err == nil {
+			t.Fatal("expected invalid JSON response")
+		}
+	})
+}
+
 func TestGetCrypkiRootCAHandlesErrorResponse(t *testing.T) {
 	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusBadGateway, `{"error":"unavailable"}`), nil
@@ -237,6 +327,36 @@ func TestGetCrypkiRootCAHandlesErrorResponse(t *testing.T) {
 	if cert != "" {
 		t.Fatalf("expected no certificate on error, got %q", cert)
 	}
+}
+
+func TestGetCrypkiRootCAAdditionalErrors(t *testing.T) {
+	t.Run("invalid request url", func(t *testing.T) {
+		if err, _ := GetCrypkiRootCA(false, "://bad-url", nil); err == nil {
+			t.Fatal("expected invalid URL to return an error")
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return nil, io.EOF
+		})
+		defer restore()
+
+		if err, _ := GetCrypkiRootCA(false, "stub://crypki.example/ca", nil); err == nil {
+			t.Fatal("expected transport error")
+		}
+	})
+
+	t.Run("invalid json response", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, `{`), nil
+		})
+		defer restore()
+
+		if err, _ := GetCrypkiRootCA(false, "stub://crypki.example/ca", nil); err == nil {
+			t.Fatal("expected invalid JSON response")
+		}
+	})
 }
 
 func TestGetZTSRootCAReturnsLocalFileContents(t *testing.T) {

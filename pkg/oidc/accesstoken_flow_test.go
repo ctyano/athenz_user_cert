@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,6 +43,25 @@ func TestGenerateOAuthStateProducesBase64Value(t *testing.T) {
 	}
 	if _, err := base64.RawURLEncoding.DecodeString(state); err != nil {
 		t.Fatalf("expected oauth state to be URL-safe base64, got %v", err)
+	}
+}
+
+func TestPKCEAndStateGenerationErrors(t *testing.T) {
+	restore := saveOIDCFlowGlobals()
+	defer restore()
+
+	randomReadFunc = func([]byte) (int, error) {
+		return 0, errors.New("read failure")
+	}
+
+	if _, _, err := generatePKCEParameters(); err == nil {
+		t.Fatal("expected generatePKCEParameters to return an error when randomness fails")
+	}
+	if _, err := generateOAuthState(); err == nil {
+		t.Fatal("expected generateOAuthState to return an error when randomness fails")
+	}
+	if _, err := buildPKCEOAuthConfig("https://issuer.example/auth", "https://issuer.example/token"); err == nil {
+		t.Fatal("expected buildPKCEOAuthConfig to return an error when randomness fails")
 	}
 }
 
@@ -95,6 +116,57 @@ func TestExchangeAuthCodeRejectsHTTPError(t *testing.T) {
 	if _, err := exchangeAuthCode(conf, "bad-code"); err == nil {
 		t.Fatal("expected exchangeAuthCode to return an error")
 	}
+}
+
+func TestExchangeAuthCodeAdditionalErrorPaths(t *testing.T) {
+	t.Run("invalid token url", func(t *testing.T) {
+		conf := &oauthConfig{TokenURL: "://bad-url"}
+		if _, err := exchangeAuthCode(conf, "code"); err == nil {
+			t.Fatal("expected invalid token URL to return an error")
+		}
+	})
+
+	t.Run("transport error", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return nil, io.EOF
+		})
+		defer restore()
+
+		conf := &oauthConfig{TokenURL: "stub://issuer.example/token"}
+		if _, err := exchangeAuthCode(conf, "code"); err == nil {
+			t.Fatal("expected transport error to return an error")
+		}
+	})
+
+	t.Run("invalid response json", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, `{`), nil
+		})
+		defer restore()
+
+		conf := &oauthConfig{TokenURL: "stub://issuer.example/token"}
+		if _, err := exchangeAuthCode(conf, "code"); err == nil {
+			t.Fatal("expected invalid token response JSON to return an error")
+		}
+	})
+
+	t.Run("cache write error", func(t *testing.T) {
+		filePath := filepath.Join(t.TempDir(), "home-file")
+		if err := os.WriteFile(filePath, []byte("not-a-dir"), 0600); err != nil {
+			t.Fatalf("failed to create fake home file: %v", err)
+		}
+		t.Setenv("HOME", filePath)
+
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusOK, `{"access_token":"fresh-token"}`), nil
+		})
+		defer restore()
+
+		conf := &oauthConfig{TokenURL: "stub://issuer.example/token"}
+		if _, err := exchangeAuthCode(conf, "code"); err == nil {
+			t.Fatal("expected cache path creation to return an error")
+		}
+	})
 }
 
 func TestParseAuthInputRejectsEmptyValue(t *testing.T) {
@@ -277,6 +349,28 @@ func TestGetAuthCodeResultManualFlowPropagatesReadError(t *testing.T) {
 	}
 }
 
+func TestGetAuthCodeResultManualFlowHandlesEOFWithoutInput(t *testing.T) {
+	restore := saveOIDCFlowGlobals()
+	defer restore()
+
+	currentGOOS = "linux"
+	authCodeInputReader = strings.NewReader("")
+
+	conf := &oauthConfig{
+		AuthURL:      "https://issuer.example/auth",
+		RedirectURL:  "http://127.0.0.1:8080",
+		ClientID:     "client-id",
+		State:        "test-state",
+		ResponseType: "code",
+		Scopes:       []string{"openid"},
+	}
+	responseMode := "query"
+
+	if _, err := getAuthCodeResult(conf, &responseMode); err == nil {
+		t.Fatal("expected missing manual input to return an error")
+	}
+}
+
 func TestGetAuthCodeResultDarwinFlow(t *testing.T) {
 	restore := saveOIDCFlowGlobals()
 	defer restore()
@@ -317,6 +411,58 @@ func TestGetAuthCodeResultDarwinFlow(t *testing.T) {
 	}
 }
 
+func TestGetAuthCodeResultDarwinFlowErrors(t *testing.T) {
+	t.Run("callback server error", func(t *testing.T) {
+		restore := saveOIDCFlowGlobals()
+		defer restore()
+
+		currentGOOS = "darwin"
+		openBrowserFunc = func(authCodeURL string) error { return nil }
+		waitForCodeServerFunc = func(listenAddress string) (authCodeResult, error) {
+			return authCodeResult{}, io.EOF
+		}
+
+		conf := &oauthConfig{
+			AuthURL:      "https://issuer.example/auth",
+			RedirectURL:  "http://127.0.0.1:8080",
+			ClientID:     "client-id",
+			State:        "test-state",
+			ResponseType: "code",
+			Scopes:       []string{"openid"},
+		}
+		responseMode := "query"
+
+		if _, err := getAuthCodeResult(conf, &responseMode); err == nil {
+			t.Fatal("expected server error to be returned")
+		}
+	})
+
+	t.Run("missing callback code", func(t *testing.T) {
+		restore := saveOIDCFlowGlobals()
+		defer restore()
+
+		currentGOOS = "darwin"
+		openBrowserFunc = func(authCodeURL string) error { return nil }
+		waitForCodeServerFunc = func(listenAddress string) (authCodeResult, error) {
+			return authCodeResult{State: "test-state"}, nil
+		}
+
+		conf := &oauthConfig{
+			AuthURL:      "https://issuer.example/auth",
+			RedirectURL:  "http://127.0.0.1:8080",
+			ClientID:     "client-id",
+			State:        "test-state",
+			ResponseType: "code",
+			Scopes:       []string{"openid"},
+		}
+		responseMode := "query"
+
+		if _, err := getAuthCodeResult(conf, &responseMode); err == nil {
+			t.Fatal("expected missing callback code to return an error")
+		}
+	})
+}
+
 func TestStartOIDCAuthCodeFlowSuccess(t *testing.T) {
 	restore := saveOIDCFlowGlobals()
 	defer restore()
@@ -343,6 +489,132 @@ func TestStartOIDCAuthCodeFlowSuccess(t *testing.T) {
 	if result.Code != "test-code" {
 		t.Fatalf("expected auth result to be returned, got %q", result.Code)
 	}
+}
+
+func TestStartOIDCAuthCodeFlowErrors(t *testing.T) {
+	t.Run("pkce config error", func(t *testing.T) {
+		restore := saveOIDCFlowGlobals()
+		defer restore()
+
+		oidcDiscoveryFunc = func(debug *bool) (string, string, error) {
+			return "https://issuer.example/auth", "https://issuer.example/token", nil
+		}
+		buildPKCEOAuthConfigFunc = func(authURL, tokenURL string) (*oauthConfig, error) {
+			return nil, io.EOF
+		}
+
+		responseMode := "query"
+		debug := false
+		if _, _, err := startOIDCAuthCodeFlow(&responseMode, &debug); err == nil {
+			t.Fatal("expected PKCE config error")
+		}
+	})
+
+	t.Run("auth code result error", func(t *testing.T) {
+		restore := saveOIDCFlowGlobals()
+		defer restore()
+
+		oidcDiscoveryFunc = func(debug *bool) (string, string, error) {
+			return "https://issuer.example/auth", "https://issuer.example/token", nil
+		}
+		buildPKCEOAuthConfigFunc = func(authURL, tokenURL string) (*oauthConfig, error) {
+			return &oauthConfig{AuthURL: authURL, TokenURL: tokenURL}, nil
+		}
+		getAuthCodeResultFunc = func(conf *oauthConfig, responseMode *string) (authCodeResult, error) {
+			return authCodeResult{}, io.EOF
+		}
+
+		responseMode := "query"
+		debug := false
+		if _, _, err := startOIDCAuthCodeFlow(&responseMode, &debug); err == nil {
+			t.Fatal("expected auth code result error")
+		}
+	})
+}
+
+func TestOIDCWrapperSuccessPaths(t *testing.T) {
+	t.Run("GetAuthAttestationData", func(t *testing.T) {
+		restore := saveOIDCFlowGlobals()
+		defer restore()
+
+		oidcDiscoveryFunc = func(debug *bool) (string, string, error) {
+			return "https://issuer.example/auth", "https://issuer.example/token", nil
+		}
+		buildPKCEOAuthConfigFunc = func(authURL, tokenURL string) (*oauthConfig, error) {
+			return &oauthConfig{AuthURL: authURL, TokenURL: tokenURL, CodeVerifier: "verifier"}, nil
+		}
+		getAuthCodeResultFunc = func(conf *oauthConfig, responseMode *string) (authCodeResult, error) {
+			return authCodeResult{Code: "test-code", AttestationData: "code=test-code"}, nil
+		}
+
+		responseMode := "query"
+		debug := false
+		got, err := GetAuthAttestationData(&responseMode, &debug)
+		if err != nil {
+			t.Fatalf("GetAuthAttestationData returned error: %v", err)
+		}
+		if !strings.Contains(got, "code_verifier=verifier") {
+			t.Fatalf("expected code verifier in attestation data, got %q", got)
+		}
+	})
+
+	t.Run("GetAuthAttestationDataAndAccessToken", func(t *testing.T) {
+		restore := saveOIDCFlowGlobals()
+		defer restore()
+		t.Setenv("HOME", t.TempDir())
+
+		oidcDiscoveryFunc = func(debug *bool) (string, string, error) {
+			return "https://issuer.example/auth", "https://issuer.example/token", nil
+		}
+		buildPKCEOAuthConfigFunc = func(authURL, tokenURL string) (*oauthConfig, error) {
+			return &oauthConfig{AuthURL: authURL, TokenURL: tokenURL, CodeVerifier: "verifier"}, nil
+		}
+		getAuthCodeResultFunc = func(conf *oauthConfig, responseMode *string) (authCodeResult, error) {
+			return authCodeResult{Code: "test-code", AttestationData: "code=test-code"}, nil
+		}
+		exchangeAuthCodeFunc = func(conf *oauthConfig, code string) (string, error) {
+			return "fresh-token", nil
+		}
+
+		responseMode := "query"
+		debug := false
+		attestationData, accessToken, err := GetAuthAttestationDataAndAccessToken(&responseMode, &debug)
+		if err != nil {
+			t.Fatalf("GetAuthAttestationDataAndAccessToken returned error: %v", err)
+		}
+		if accessToken != "fresh-token" || !strings.Contains(attestationData, "code_verifier=verifier") {
+			t.Fatalf("unexpected wrapper result attestation=%q token=%q", attestationData, accessToken)
+		}
+	})
+
+	t.Run("GetAuthAccessToken", func(t *testing.T) {
+		restore := saveOIDCFlowGlobals()
+		defer restore()
+		t.Setenv("HOME", t.TempDir())
+
+		oidcDiscoveryFunc = func(debug *bool) (string, string, error) {
+			return "https://issuer.example/auth", "https://issuer.example/token", nil
+		}
+		buildPKCEOAuthConfigFunc = func(authURL, tokenURL string) (*oauthConfig, error) {
+			return &oauthConfig{AuthURL: authURL, TokenURL: tokenURL}, nil
+		}
+		getAuthCodeResultFunc = func(conf *oauthConfig, responseMode *string) (authCodeResult, error) {
+			return authCodeResult{Code: "test-code"}, nil
+		}
+		exchangeAuthCodeFunc = func(conf *oauthConfig, code string) (string, error) {
+			return "fresh-token", nil
+		}
+
+		responseMode := "query"
+		debug := false
+		got, err := GetAuthAccessToken(&responseMode, &debug)
+		if err != nil {
+			t.Fatalf("GetAuthAccessToken returned error: %v", err)
+		}
+		if got != "fresh-token" {
+			t.Fatalf("expected exchanged token, got %q", got)
+		}
+	})
 }
 
 func TestAuthCodeResultFromRequest(t *testing.T) {
@@ -392,6 +664,7 @@ func saveOIDCFlowGlobals() func() {
 	savedBuildPKCE := buildPKCEOAuthConfigFunc
 	savedGetAuthCodeResult := getAuthCodeResultFunc
 	savedExchange := exchangeAuthCodeFunc
+	savedRandomRead := randomReadFunc
 
 	return func() {
 		currentGOOS = savedGOOS
@@ -402,6 +675,7 @@ func saveOIDCFlowGlobals() func() {
 		buildPKCEOAuthConfigFunc = savedBuildPKCE
 		getAuthCodeResultFunc = savedGetAuthCodeResult
 		exchangeAuthCodeFunc = savedExchange
+		randomReadFunc = savedRandomRead
 	}
 }
 
