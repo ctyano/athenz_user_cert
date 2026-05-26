@@ -183,6 +183,66 @@ func TestExchangeAuthCodeWritesCachedAccessToken(t *testing.T) {
 	}
 }
 
+func TestGetPasswordGrantAccessTokenWritesCachedAccessToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			return jsonResponse(http.StatusOK, `{"authorization_endpoint":"https://issuer.example/auth","token_endpoint":"stub://issuer.example/token"}`), nil
+		case "/token":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected POST, got %s", r.Method)
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("failed to read request body: %v", err)
+			}
+			values, err := url.ParseQuery(string(body))
+			if err != nil {
+				t.Fatalf("failed to parse form body: %v", err)
+			}
+			if values.Get("grant_type") != "password" {
+				t.Fatalf("expected password grant, got %q", values.Get("grant_type"))
+			}
+			if values.Get("username") != "dex-user" || values.Get("password") != "secret" {
+				t.Fatalf("unexpected credentials %q/%q", values.Get("username"), values.Get("password"))
+			}
+			if values.Get("scope") != DEFAULT_OIDC_SCOPES {
+				t.Fatalf("expected scope %q, got %q", DEFAULT_OIDC_SCOPES, values.Get("scope"))
+			}
+			return jsonResponse(http.StatusOK, `{"access_token":"fresh-token"}`), nil
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+			return nil, nil
+		}
+	})
+	defer restore()
+
+	originalIssuer := DEFAULT_OIDC_ISSUER
+	DEFAULT_OIDC_ISSUER = "stub://issuer.example"
+	t.Cleanup(func() {
+		DEFAULT_OIDC_ISSUER = originalIssuer
+	})
+
+	debug := false
+	got, err := GetPasswordGrantAccessToken("dex-user", "secret", &debug)
+	if err != nil {
+		t.Fatalf("GetPasswordGrantAccessToken returned error: %v", err)
+	}
+	if got != "fresh-token" {
+		t.Fatalf("expected access token, got %q", got)
+	}
+
+	cachedToken, err := os.ReadFile(getAccessTokenCachePath())
+	if err != nil {
+		t.Fatalf("failed to read cached access token: %v", err)
+	}
+	if string(cachedToken) != "fresh-token" {
+		t.Fatalf("expected cached access token, got %q", string(cachedToken))
+	}
+}
+
 func TestGetUserNameFromAccessToken(t *testing.T) {
 	token := makeTestJWT(t, map[string]any{
 		"exp":   9999999999,

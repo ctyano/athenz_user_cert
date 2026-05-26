@@ -22,6 +22,7 @@ var (
 	getAuthAttestationData             = oidc.GetAuthAttestationData
 	getAuthAttestationDataAndAccessTok = oidc.GetAuthAttestationDataAndAccessToken
 	getAuthAccessToken                 = oidc.GetAuthAccessToken
+	getPasswordGrantAccessToken        = oidc.GetPasswordGrantAccessToken
 	getUserNameFromAccessToken         = oidc.GetUserNameFromAccessToken
 	generateCSR                        = certificate.GenerateCSR
 	privateKeyToPEM                    = certificate.PrivateKeyToPEM

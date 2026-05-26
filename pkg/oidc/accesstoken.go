@@ -327,18 +327,27 @@ func exchangeAuthCode(conf *oauthConfig, code string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if accessToken != "" {
-		accessTokenFilePath := getAccessTokenCachePath()
-		err := createCacheDir(filepath.Dir(accessTokenFilePath), false)
-		if err != nil {
-			return "", err
-		}
-		err = os.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
-		if err != nil {
-			return "", fmt.Errorf("failed to store access token to: %s, error %s", accessTokenFilePath, err)
-		}
+	if err := storeAccessToken(accessToken); err != nil {
+		return "", err
 	}
 	return accessToken, nil
+}
+
+func storeAccessToken(accessToken string) error {
+	if accessToken == "" {
+		return nil
+	}
+
+	accessTokenFilePath := getAccessTokenCachePath()
+	err := createCacheDir(filepath.Dir(accessTokenFilePath), false)
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(accessTokenFilePath, []byte(accessToken), 0600)
+	if err != nil {
+		return fmt.Errorf("failed to store access token to: %s, error %s", accessTokenFilePath, err)
+	}
+	return nil
 }
 
 func parseAccessTokenResponse(body io.Reader) (string, error) {
@@ -554,6 +563,58 @@ func GetAuthAccessToken(responseMode *string, debug *bool) (string, error) {
 	}
 
 	return exchangeAuthCodeFunc(conf, authResult.Code)
+}
+
+func GetPasswordGrantAccessToken(username, password string, debug *bool) (string, error) {
+	if strings.TrimSpace(username) == "" {
+		return "", fmt.Errorf("username is required")
+	}
+	if strings.TrimSpace(password) == "" {
+		return "", fmt.Errorf("password is required")
+	}
+
+	_, tokenURL, err := oidcDiscoveryFunc(debug)
+	if err != nil {
+		return "", err
+	}
+
+	form := url.Values{}
+	form.Set("grant_type", "password")
+	form.Set("username", username)
+	form.Set("password", password)
+	form.Set("client_id", DEFAULT_OIDC_CLIENT_ID)
+	if DEFAULT_OIDC_CLIENT_SECRET != "" {
+		form.Set("client_secret", DEFAULT_OIDC_CLIENT_SECRET)
+	}
+	if strings.TrimSpace(DEFAULT_OIDC_SCOPES) != "" {
+		form.Set("scope", DEFAULT_OIDC_SCOPES)
+	}
+
+	req, err := http.NewRequest(http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", fmt.Errorf("failed to create password grant token request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("password grant token request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("password grant token request failed: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	accessToken, err := parseAccessTokenResponse(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if err := storeAccessToken(accessToken); err != nil {
+		return "", err
+	}
+	return accessToken, nil
 }
 
 // waitForCodeServer runs a local HTTP server to capture the OAuth2 code via GET or POST.

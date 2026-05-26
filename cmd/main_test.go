@@ -71,30 +71,118 @@ func TestExecuteVersionCommand(t *testing.T) {
 }
 
 func TestExecuteTestCommand(t *testing.T) {
-	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
-		return jsonResponse(http.StatusUnauthorized, ""), nil
-	})
-	defer restore()
-
-	cfg := &appconfig.Settings{}
-	for _, signerName := range []string{"crypki", "cfssl", "zts"} {
-		t.Run(signerName, func(t *testing.T) {
-			output := captureStdout(t, func() {
-				ExecuteTestCommand(
-					[]string{"-signer", signerName, "-ca", "stub://example.test/ca", "-debug"},
-					flag.NewFlagSet("test", flag.ContinueOnError),
-					cfg,
-				)
-			})
-
-			if !strings.Contains(output, "Signer CA URL is set as:stub://example.test/ca") {
-				t.Fatalf("expected debug CA output, got %q", output)
-			}
-			if !strings.Contains(output, DEFAULT_APP_NAME+" test complete") {
-				t.Fatalf("expected success output, got %q", output)
-			}
+	t.Run("cfssl ca check", func(t *testing.T) {
+		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
+			return jsonResponse(http.StatusUnauthorized, ""), nil
 		})
-	}
+		defer restore()
+
+		output := captureStdout(t, func() {
+			ExecuteTestCommand(
+				[]string{"-signer", "cfssl", "-ca", "stub://example.test/ca", "-debug"},
+				flag.NewFlagSet("test", flag.ContinueOnError),
+				&appconfig.Settings{},
+			)
+		})
+
+		if !strings.Contains(output, "Signer CA URL is set as:stub://example.test/ca") {
+			t.Fatalf("expected debug CA output, got %q", output)
+		}
+		if !strings.Contains(output, DEFAULT_APP_NAME+" test complete") {
+			t.Fatalf("expected success output, got %q", output)
+		}
+	})
+
+	t.Run("crypki issues certificate with stdin password", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+		installDefaultCommandStubs(t)
+		installSuccessfulGenerateCSR(t)
+
+		testCommandInputReader = strings.NewReader("secret\n")
+		getPasswordGrantAccessToken = func(username, password string, debug *bool) (string, error) {
+			if username != "dex-user" || password != "secret" {
+				t.Fatalf("unexpected password grant credentials %q/%q", username, password)
+			}
+			return "jwt-token", nil
+		}
+		sendCrypkiCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
+			if got := (*headers)["Authorization"][0]; got != "Bearer jwt-token" {
+				t.Fatalf("expected crypki authorization header, got %q", got)
+			}
+			if !strings.Contains(csr, "Y3NyLXBheWxvYWQ=") {
+				t.Fatalf("expected PEM encoded csr, got %q", csr)
+			}
+			return nil, "cert"
+		}
+		getCrypkiRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+			if test {
+				t.Fatal("expected non-test CA retrieval after certificate issuance")
+			}
+			if got := (*headers)["Authorization"][0]; got != "Bearer jwt-token" {
+				t.Fatalf("expected crypki authorization header, got %q", got)
+			}
+			return nil, "ca"
+		}
+
+		output := captureStdout(t, func() {
+			ExecuteTestCommand(
+				[]string{"-signer", "crypki", "-username", "dex-user", "-password-stdin", "-debug"},
+				flag.NewFlagSet("test", flag.ContinueOnError),
+				&appconfig.Settings{},
+			)
+		})
+		if !strings.Contains(output, "Access Token retrieved Successfully") {
+			t.Fatalf("expected access token debug output, got %q", output)
+		}
+		if !strings.Contains(output, DEFAULT_APP_NAME+" test complete") {
+			t.Fatalf("expected success output, got %q", output)
+		}
+	})
+
+	t.Run("zts issues certificate with stdin password", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+		installDefaultCommandStubs(t)
+		installSuccessfulGenerateCSR(t)
+
+		testCommandInputReader = strings.NewReader("secret\n")
+		getPasswordGrantAccessToken = func(username, password string, debug *bool) (string, error) {
+			if username != "dex-user" || password != "secret" {
+				t.Fatalf("unexpected password grant credentials %q/%q", username, password)
+			}
+			return "jwt-token", nil
+		}
+		sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+			if name != "user.alice" {
+				t.Fatalf("expected derived common name, got %q", name)
+			}
+			if attestationData != "jwt-token" {
+				t.Fatalf("expected token attestation data, got %q", attestationData)
+			}
+			if !strings.Contains(csr, "Y3NyLXBheWxvYWQ=") {
+				t.Fatalf("expected PEM encoded csr, got %q", csr)
+			}
+			return nil, "cert"
+		}
+		getZTSRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
+			if test {
+				t.Fatal("expected non-test CA retrieval after certificate issuance")
+			}
+			return nil, "ca"
+		}
+
+		output := captureStdout(t, func() {
+			ExecuteTestCommand(
+				[]string{"-signer", "zts", "-username", "dex-user", "-password-stdin"},
+				flag.NewFlagSet("test", flag.ContinueOnError),
+				&appconfig.Settings{},
+			)
+		})
+		if !strings.Contains(output, DEFAULT_APP_NAME+" test complete") {
+			t.Fatalf("expected success output, got %q", output)
+		}
+	})
 }
 
 func TestExecuteTestCommandReturnsError(t *testing.T) {
@@ -680,6 +768,9 @@ func installDefaultCommandStubs(t *testing.T) {
 	getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
 		return "", io.EOF
 	}
+	getPasswordGrantAccessToken = func(username, password string, debug *bool) (string, error) {
+		return "", io.EOF
+	}
 	getUserNameFromAccessToken = func(rawJWT, userNameClaim string) (string, error) {
 		if rawJWT == "" {
 			t.Fatal("expected access token for username extraction")
@@ -709,6 +800,7 @@ func saveCmdGlobals() func() {
 	savedGetAuthAttestationData := getAuthAttestationData
 	savedGetAuthAttestationDataAndAccessTok := getAuthAttestationDataAndAccessTok
 	savedGetAuthAccessToken := getAuthAccessToken
+	savedGetPasswordGrantAccessToken := getPasswordGrantAccessToken
 	savedGetUserNameFromAccessToken := getUserNameFromAccessToken
 	savedGenerateCSR := generateCSR
 	savedPrivateKeyToPEM := privateKeyToPEM
@@ -724,12 +816,14 @@ func saveCmdGlobals() func() {
 	savedSendZTSCSR := sendZTSCSR
 	savedGetZTSRootCA := getZTSRootCA
 	savedExitFunc := exitFunc
+	savedTestCommandInputReader := testCommandInputReader
 
 	return func() {
 		loadConfig = savedLoadConfig
 		getAuthAttestationData = savedGetAuthAttestationData
 		getAuthAttestationDataAndAccessTok = savedGetAuthAttestationDataAndAccessTok
 		getAuthAccessToken = savedGetAuthAccessToken
+		getPasswordGrantAccessToken = savedGetPasswordGrantAccessToken
 		getUserNameFromAccessToken = savedGetUserNameFromAccessToken
 		generateCSR = savedGenerateCSR
 		privateKeyToPEM = savedPrivateKeyToPEM
@@ -745,6 +839,7 @@ func saveCmdGlobals() func() {
 		sendZTSCSR = savedSendZTSCSR
 		getZTSRootCA = savedGetZTSRootCA
 		exitFunc = savedExitFunc
+		testCommandInputReader = savedTestCommandInputReader
 	}
 }
 
