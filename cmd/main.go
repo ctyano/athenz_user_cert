@@ -18,26 +18,24 @@ var (
 	DEFAULT_APP_NAME    = "athenzusercert"
 	DEFAULT_SIGNER_NAME = "zts"
 
-	loadConfig                         = appconfig.Load
-	getAuthAttestationData             = oidc.GetAuthAttestationData
-	getAuthAttestationDataAndAccessTok = oidc.GetAuthAttestationDataAndAccessToken
-	getAuthAccessToken                 = oidc.GetAuthAccessToken
-	getPasswordGrantAccessToken        = oidc.GetPasswordGrantAccessToken
-	getUserNameFromAccessToken         = oidc.GetUserNameFromAccessToken
-	generateCSR                        = certificate.GenerateCSR
-	privateKeyToPEM                    = certificate.PrivateKeyToPEM
-	writePEMFile                       = certificate.WritePEM
-	userKeyPath                        = certificate.UserKeyPath
-	userCertPath                       = certificate.UserCertPath
-	caCertPath                         = certificate.CACertPath
-	writeOutputFile                    = os.WriteFile
-	sendCrypkiCSR                      = signer.SendCrypkiCSR
-	getCrypkiRootCA                    = signer.GetCrypkiRootCA
-	sendCFSSLCSR                       = signer.SendCFSSLCSR
-	getCFSSLRootCA                     = signer.GetCFSSLRootCA
-	sendZTSCSR                         = signer.SendZTSCSR
-	getZTSRootCA                       = signer.GetZTSRootCA
-	exitFunc                           = os.Exit
+	loadConfig                  = appconfig.Load
+	getAuthAccessToken          = oidc.GetAuthAccessToken
+	getPasswordGrantAccessToken = oidc.GetPasswordGrantAccessToken
+	getUserNameFromAccessToken  = oidc.GetUserNameFromAccessToken
+	generateCSR                 = certificate.GenerateCSR
+	privateKeyToPEM             = certificate.PrivateKeyToPEM
+	writePEMFile                = certificate.WritePEM
+	userKeyPath                 = certificate.UserKeyPath
+	userCertPath                = certificate.UserCertPath
+	caCertPath                  = certificate.CACertPath
+	writeOutputFile             = os.WriteFile
+	sendCrypkiCSR               = signer.SendCrypkiCSR
+	getCrypkiRootCA             = signer.GetCrypkiRootCA
+	sendCFSSLCSR                = signer.SendCFSSLCSR
+	getCFSSLRootCA              = signer.GetCFSSLRootCA
+	sendZTSCSR                  = signer.SendZTSCSR
+	getZTSRootCA                = signer.GetZTSRootCA
+	exitFunc                    = os.Exit
 )
 
 func main() {
@@ -100,34 +98,14 @@ Options:
 		return err
 	}
 
-	var accesstoken, attestationData string
+	var accesstoken string
 	var err error
-	switch *signerName {
-	case "zts":
-		if *commonName == "" {
-			attestationData, accesstoken, err = getAuthAttestationDataAndAccessTok(responseMode, debug)
-			if err != nil || accesstoken == "" || attestationData == "" {
-				return fmt.Errorf("Failed to get OIDC authentication data: %v", err)
-			}
-		} else {
-			attestationData, err = getAuthAttestationData(responseMode, debug)
-			if err != nil || attestationData == "" {
-				return fmt.Errorf("Failed to get OIDC attestation data: %v", err)
-			}
-		}
-	default:
-		accesstoken, err = getAuthAccessToken(responseMode, debug)
-		if err != nil || accesstoken == "" {
-			return fmt.Errorf("Failed to get access token: %v", err)
-		}
+	accesstoken, err = getAuthAccessToken(responseMode, debug)
+	if err != nil || accesstoken == "" {
+		return fmt.Errorf("Failed to get access token: %v", err)
 	}
 	if *debug {
-		if accesstoken != "" {
-			fmt.Fprintf(stdout, "Access Token retrieved Successfully:\n%s\n", accesstoken)
-		}
-		if attestationData != "" {
-			fmt.Fprintf(stdout, "OIDC attestation data:\n%s\n", attestationData)
-		}
+		fmt.Fprintf(stdout, "Access Token retrieved Successfully:\n%s\n", accesstoken)
 	}
 
 	if *commonName == "" {
@@ -197,7 +175,7 @@ Options:
 			fmt.Fprintf(stdout, "CA certificate:\n%s\n", cacert)
 		}
 	case "zts":
-		err, cert = sendZTSCSR(*commonName, *endpoint, csr, attestationData, *caURL, nil)
+		err, cert = sendZTSCSR(*commonName, *endpoint, csr, accesstoken, *caURL, nil)
 		if err != nil {
 			return fmt.Errorf("Failed to get signed certificate: %v", err)
 		}

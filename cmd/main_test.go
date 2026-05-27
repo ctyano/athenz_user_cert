@@ -426,12 +426,12 @@ func TestExecuteSignerFlows(t *testing.T) {
 			wantAccessToken: "cached-token",
 			wantCAUpdated:   false,
 			setup: func(t *testing.T) {
-				getAuthAttestationDataAndAccessTok = func(responseMode *string, debug *bool) (string, string, error) {
-					return "code=test-code", "cached-token", nil
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
 				}
 				sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
-					if attestationData != "code=test-code" {
-						t.Fatalf("expected attestation data, got %q", attestationData)
+					if attestationData != "cached-token" {
+						t.Fatalf("expected access token attestation data, got %q", attestationData)
 					}
 					return nil, "zts-cert"
 				}
@@ -446,17 +446,20 @@ func TestExecuteSignerFlows(t *testing.T) {
 			wantCommonName:  "custom.name",
 			wantCert:        "zts-cert",
 			wantCACert:      "zts-ca",
-			wantAccessToken: "",
+			wantAccessToken: "cached-token",
 			wantCAUpdated:   true,
 			setup: func(t *testing.T) {
-				getAuthAttestationData = func(responseMode *string, debug *bool) (string, error) {
-					return "code=test-code", nil
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "cached-token", nil
 				}
 				getUserNameFromAccessToken = func(rawJWT, userNameClaim string) (string, error) {
 					t.Fatal("did not expect username extraction when common name is provided")
 					return "", nil
 				}
 				sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+					if attestationData != "cached-token" {
+						t.Fatalf("expected access token attestation data, got %q", attestationData)
+					}
 					return nil, "zts-cert"
 				}
 				getZTSRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
@@ -578,21 +581,21 @@ func TestExecuteAdditionalErrorPaths(t *testing.T) {
 			setup:   func(*testing.T) {},
 		},
 		{
-			name:    "zts auth data missing",
+			name:    "zts access token missing",
 			args:    []string{"-signer", "zts"},
-			wantErr: "Failed to get OIDC authentication data",
+			wantErr: "Failed to get access token",
 			setup: func(t *testing.T) {
-				getAuthAttestationDataAndAccessTok = func(responseMode *string, debug *bool) (string, string, error) {
-					return "", "", nil
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+					return "", nil
 				}
 			},
 		},
 		{
-			name:    "zts attestation missing",
+			name:    "zts explicit common name access token missing",
 			args:    []string{"-signer", "zts", "-cn", "custom.name"},
-			wantErr: "Failed to get OIDC attestation data",
+			wantErr: "Failed to get access token",
 			setup: func(t *testing.T) {
-				getAuthAttestationData = func(responseMode *string, debug *bool) (string, error) {
+				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
 					return "", nil
 				}
 			},
@@ -759,12 +762,6 @@ func installSuccessfulGenerateCSR(t *testing.T) {
 func installDefaultCommandStubs(t *testing.T) {
 	t.Helper()
 
-	getAuthAttestationData = func(responseMode *string, debug *bool) (string, error) {
-		return "", io.EOF
-	}
-	getAuthAttestationDataAndAccessTok = func(responseMode *string, debug *bool) (string, string, error) {
-		return "", "", io.EOF
-	}
 	getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
 		return "", io.EOF
 	}
@@ -797,8 +794,6 @@ func installDefaultCommandStubs(t *testing.T) {
 
 func saveCmdGlobals() func() {
 	savedLoadConfig := loadConfig
-	savedGetAuthAttestationData := getAuthAttestationData
-	savedGetAuthAttestationDataAndAccessTok := getAuthAttestationDataAndAccessTok
 	savedGetAuthAccessToken := getAuthAccessToken
 	savedGetPasswordGrantAccessToken := getPasswordGrantAccessToken
 	savedGetUserNameFromAccessToken := getUserNameFromAccessToken
@@ -820,8 +815,6 @@ func saveCmdGlobals() func() {
 
 	return func() {
 		loadConfig = savedLoadConfig
-		getAuthAttestationData = savedGetAuthAttestationData
-		getAuthAttestationDataAndAccessTok = savedGetAuthAttestationDataAndAccessTok
 		getAuthAccessToken = savedGetAuthAccessToken
 		getPasswordGrantAccessToken = savedGetPasswordGrantAccessToken
 		getUserNameFromAccessToken = savedGetUserNameFromAccessToken
