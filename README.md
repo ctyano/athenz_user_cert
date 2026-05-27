@@ -56,7 +56,8 @@ signer:
   name: zts
 
 endpoint: https://zts.example.com/zts/v1/usercert
-ca_cert_path: /usr/local/etc/athenz/ca.pem
+ca_endpoint: https://zts.example.com/zts/v1/ca
+signer_tls_ca_path: /usr/local/etc/athenz/zts-server-ca.pem
 
 oidc:
   issuer: https://issuer.example.com
@@ -66,10 +67,9 @@ oidc:
   username_claim: email
 
 zts:
-  sign_url: https://zts.example.com/zts/v1/usercert
-  ca_cert_path: /usr/local/etc/athenz/ca.pem
   timeout: 10
 ```
 
 Common environment variable overrides include `ATHENZ_API_URL`,
-`ATHENZ_CA_CERT_PATH`, `ATHENZ_OIDC_ISSUER`, and `ATHENZ_ZTS_SIGN_URL`.
+`ATHENZ_CA_ENDPOINT`, `ATHENZ_SIGNER_TLS_CA_PATH`, `ATHENZ_OIDC_ISSUER`, and
+`ATHENZ_ZTS_SIGN_URL`.

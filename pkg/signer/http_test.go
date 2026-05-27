@@ -359,43 +359,6 @@ func TestGetCrypkiRootCAAdditionalErrors(t *testing.T) {
 	})
 }
 
-func TestGetZTSRootCAReturnsLocalFileContents(t *testing.T) {
-	caPath := filepath.Join(t.TempDir(), "ca.pem")
-	want := "-----BEGIN CERTIFICATE-----\nLOCAL\n-----END CERTIFICATE-----\n"
-	if err := os.WriteFile(caPath, []byte(want), 0600); err != nil {
-		t.Fatalf("failed to write CA file: %v", err)
-	}
-
-	err, cert := GetZTSRootCA(false, caPath, nil)
-	if err != nil {
-		t.Fatalf("GetZTSRootCA returned error: %v", err)
-	}
-	if cert != want {
-		t.Fatalf("expected CA contents, got %q", cert)
-	}
-}
-
-func TestGetZTSLocalPath(t *testing.T) {
-	tests := []struct {
-		name   string
-		source string
-		want   string
-	}{
-		{name: "empty", source: "   ", want: ""},
-		{name: "http url", source: "https://zts.example/ca", want: ""},
-		{name: "file url", source: "file:///tmp/ca.pem", want: "/tmp/ca.pem"},
-		{name: "plain path", source: "/tmp/ca.pem", want: "/tmp/ca.pem"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := getZTSLocalPath(tt.source); got != tt.want {
-				t.Fatalf("expected local path %q, got %q", tt.want, got)
-			}
-		})
-	}
-}
-
 func TestGetZTSRootCAAllowsUnauthorizedDuringTest(t *testing.T) {
 	restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusUnauthorized, ""), nil
@@ -445,16 +408,16 @@ func TestParseZTSRootCAResponseVariants(t *testing.T) {
 	})
 }
 
-func TestNewZTSHTTPClientLoadsCustomCAFile(t *testing.T) {
+func TestNewSignerHTTPClientLoadsSignerTLSCAFile(t *testing.T) {
 	certPEM := createSelfSignedCertPEM(t)
 	caPath := filepath.Join(t.TempDir(), "ca.pem")
 	if err := os.WriteFile(caPath, []byte(certPEM), 0600); err != nil {
 		t.Fatalf("failed to write CA file: %v", err)
 	}
 
-	client, err := newZTSHTTPClient(caPath)
+	client, err := newSignerHTTPClient("10", caPath)
 	if err != nil {
-		t.Fatalf("newZTSHTTPClient returned error: %v", err)
+		t.Fatalf("newSignerHTTPClient returned error: %v", err)
 	}
 	if client.Transport == nil {
 		t.Fatal("expected TLS transport to be configured")

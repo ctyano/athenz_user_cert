@@ -93,7 +93,7 @@ Options:
 	// Parse argument flags
 	flagSet := flag.NewFlagSet(appname, flag.ContinueOnError)
 	flagSet.SetOutput(stdout)
-	signerName, endpoint, caURL, commonName, userNameClaim, dnsarg, emailarg, iparg, uriarg, debug, responseMode := addCommandFlags(flagSet, cfg)
+	signerName, endpoint, caEndpoint, signerTLSCAPath, commonName, userNameClaim, dnsarg, emailarg, iparg, uriarg, debug, responseMode := addCommandFlags(flagSet, cfg)
 	if err := flagSet.Parse(args); err != nil {
 		return err
 	}
@@ -128,10 +128,12 @@ Options:
 		fmt.Fprintf(stdout, "Generated csr:\n%s\n", csr)
 	}
 
-	resolveSignerEndpointCA(signerName, endpoint, caURL)
+	resolveSignerEndpoints(signerName, endpoint, caEndpoint)
+	applySignerTLSCAPath(signerTLSCAPath)
 	if *debug {
 		fmt.Fprintf(stdout, "Signer URL is set as:%s\n", *endpoint)
-		fmt.Fprintf(stdout, "Signer CA URL is set as:%s\n", *caURL)
+		fmt.Fprintf(stdout, "Signer CA endpoint is set as:%s\n", *caEndpoint)
+		fmt.Fprintf(stdout, "Signer TLS CA path is set as:%s\n", *signerTLSCAPath)
 	}
 
 	var cert, cacert string
@@ -146,7 +148,7 @@ Options:
 		if *debug {
 			fmt.Fprintf(stdout, "Signed certificate:\n%s\n", cert)
 		}
-		err, cacert = getCrypkiRootCA(false, *caURL, &map[string][]string{
+		err, cacert = getCrypkiRootCA(false, *caEndpoint, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
@@ -165,7 +167,7 @@ Options:
 		if *debug {
 			fmt.Fprintf(stdout, "Signed certificate:\n%s\n", cert)
 		}
-		err, cacert = getCFSSLRootCA(false, *caURL, &map[string][]string{
+		err, cacert = getCFSSLRootCA(false, *caEndpoint, &map[string][]string{
 			"Authorization": []string{"Bearer " + accesstoken},
 		})
 		if err != nil {
@@ -175,14 +177,14 @@ Options:
 			fmt.Fprintf(stdout, "CA certificate:\n%s\n", cacert)
 		}
 	case "zts":
-		err, cert = sendZTSCSR(*commonName, *endpoint, csr, accesstoken, *caURL, nil)
+		err, cert = sendZTSCSR(*commonName, *endpoint, csr, accesstoken, *signerTLSCAPath, nil)
 		if err != nil {
 			return fmt.Errorf("Failed to get signed certificate: %v", err)
 		}
 		if *debug {
 			fmt.Fprintf(stdout, "Signed certificate:\n%s\n", cert)
 		}
-		err, cacert = getZTSRootCA(false, *caURL, nil)
+		err, cacert = getZTSRootCA(false, *caEndpoint, nil)
 		if err != nil {
 			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
@@ -220,16 +222,17 @@ Options:
 	if cacert != "" {
 		fmt.Fprintf(stdout, "Signed Athenz CA certificate is successfully stored at: \t%s\n", caCertDestination)
 	} else {
-		fmt.Fprintf(stdout, "Signed Athenz CA certificate was not updated. Use -ca with a local PEM path or CA endpoint if you need to refresh %s\n", caCertDestination)
+		fmt.Fprintf(stdout, "Signed Athenz CA certificate was not updated. Use -ca-endpoint if you need to refresh %s\n", caCertDestination)
 	}
 
 	return nil
 }
 
-func addCommandFlags(flagSet *flag.FlagSet, cfg *appconfig.Settings) (signerName, endpoint, caURL, commonName, userNameClaim, dnsarg, emailarg, iparg, uriarg *string, debug *bool, responseMode *string) {
+func addCommandFlags(flagSet *flag.FlagSet, cfg *appconfig.Settings) (signerName, endpoint, caEndpoint, signerTLSCAPath, commonName, userNameClaim, dnsarg, emailarg, iparg, uriarg *string, debug *bool, responseMode *string) {
 	signerName = flagSet.String("signer", defaultString(cfg.SignerName, DEFAULT_SIGNER_NAME), "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
 	endpoint = flagSet.String("endpoint", cfg.Endpoint, "Target destination URL to send the certificate sign request (leave it empty to use default)")
-	caURL = flagSet.String("ca", cfg.CAURL, "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
+	caEndpoint = flagSet.String("ca-endpoint", cfg.CAEndpoint, "Target destination API endpoint to retrieve the signer-issued CA certificate (leave it empty to use default)")
+	signerTLSCAPath = flagSet.String("signer-tls-ca", defaultString(cfg.SignerTLSCAPath, signer.DefaultSignerTLSCAPath()), "Local PEM path for the CA used to verify the signer server TLS certificate")
 
 	commonName = flagSet.String("cn", "", "Subject Common Name for the user certificate (default: \"<athenz user prefix>.<oauth user name>\")")
 	userNameClaim = flagSet.String("claim", defaultString(cfg.UserClaim, oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM), "JWT Claim Name to extract the user name")
@@ -252,28 +255,32 @@ func defaultString(value, fallback string) string {
 	return fallback
 }
 
-func resolveSignerEndpointCA(signerName, endpoint, caURL *string) {
+func resolveSignerEndpoints(signerName, endpoint, caEndpoint *string) {
 	switch *signerName {
 	case "crypki":
 		if *endpoint == "" {
 			*endpoint = signer.DEFAULT_SIGNER_CRYPKI_SIGN_URL
 		}
-		if *caURL == "" {
-			*caURL = signer.DEFAULT_SIGNER_CRYPKI_CA_URL
+		if *caEndpoint == "" {
+			*caEndpoint = signer.DEFAULT_SIGNER_CRYPKI_CA_URL
 		}
 	case "cfssl":
 		if *endpoint == "" {
 			*endpoint = signer.DEFAULT_SIGNER_CFSSL_SIGN_URL
 		}
-		if *caURL == "" {
-			*caURL = signer.DEFAULT_SIGNER_CFSSL_CA_URL
+		if *caEndpoint == "" {
+			*caEndpoint = signer.DEFAULT_SIGNER_CFSSL_CA_URL
 		}
 	case "zts":
 		if *endpoint == "" {
 			*endpoint = signer.DEFAULT_SIGNER_ZTS_SIGN_URL
 		}
-		if *caURL == "" {
-			*caURL = signer.DEFAULT_SIGNER_ZTS_CA_URL
+		if *caEndpoint == "" {
+			*caEndpoint = signer.DEFAULT_SIGNER_ZTS_CA_URL
 		}
 	}
+}
+
+func applySignerTLSCAPath(signerTLSCAPath *string) {
+	signer.DEFAULT_SIGNER_TLS_CA_PATH = strings.TrimSpace(*signerTLSCAPath)
 }

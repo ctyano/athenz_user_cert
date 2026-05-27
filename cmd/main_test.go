@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	appconfig "github.com/ctyano/athenz-user-cert/pkg/config"
+	"github.com/ctyano/athenz-user-cert/pkg/signer"
 )
 
 func TestDefaultString(t *testing.T) {
@@ -26,7 +28,7 @@ func TestDefaultString(t *testing.T) {
 	}
 }
 
-func TestResolveSignerEndpointCA(t *testing.T) {
+func TestResolveSignerEndpoints(t *testing.T) {
 	tests := []struct {
 		name         string
 		signer       string
@@ -35,22 +37,55 @@ func TestResolveSignerEndpointCA(t *testing.T) {
 	}{
 		{name: "crypki", signer: "crypki", wantEndpoint: "http://localhost:10000/v3/sig/x509-cert/keys/x509-key", wantCA: "http://localhost:10000/v3/sig/x509-cert/keys/x509-key"},
 		{name: "cfssl", signer: "cfssl", wantEndpoint: "http://localhost:10000/api/v1/cfssl/sign", wantCA: "http://localhost:10000/api/v1/cfssl/info"},
-		{name: "zts", signer: "zts", wantEndpoint: "https://127.0.0.1:4443/zts/v1/usercert", wantCA: "/.athenz/ca.cert.pem"},
+		{name: "zts", signer: "zts", wantEndpoint: "https://127.0.0.1:4443/zts/v1/usercert", wantCA: ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			signerName := tt.signer
 			endpoint := ""
-			caURL := ""
-			resolveSignerEndpointCA(&signerName, &endpoint, &caURL)
+			caEndpoint := ""
+			resolveSignerEndpoints(&signerName, &endpoint, &caEndpoint)
 			if endpoint != tt.wantEndpoint {
 				t.Fatalf("expected endpoint %q, got %q", tt.wantEndpoint, endpoint)
 			}
-			if !strings.HasSuffix(caURL, tt.wantCA) {
-				t.Fatalf("expected CA URL suffix %q, got %q", tt.wantCA, caURL)
+			if caEndpoint != tt.wantCA {
+				t.Fatalf("expected CA endpoint %q, got %q", tt.wantCA, caEndpoint)
 			}
 		})
+	}
+}
+
+func TestRemovedCAFlagAliasesAreRejected(t *testing.T) {
+	for _, args := range [][]string{
+		{"-sign-url", "https://example.test/sign"},
+		{"-ca-url", "https://example.test/ca"},
+		{"-ca", "https://example.test/ca"},
+	} {
+		t.Run(strings.Join(args[:1], ""), func(t *testing.T) {
+			flagSet := flag.NewFlagSet("test", flag.ContinueOnError)
+			addCommandFlags(flagSet, &appconfig.Settings{})
+			if err := flagSet.Parse(args); err == nil {
+				t.Fatalf("expected %q to be rejected", args[0])
+			}
+		})
+	}
+}
+
+func TestSignerTLSCAFlagUsesBuildDefault(t *testing.T) {
+	restore := saveCmdGlobals()
+	defer restore()
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	signer.DEFAULT_SIGNER_TLS_CA_PATH = ".athenz/ca.cert.pem"
+	flagSet := flag.NewFlagSet("test", flag.ContinueOnError)
+	_, _, _, signerTLSCAPath, _, _, _, _, _, _, _, _ := addCommandFlags(flagSet, &appconfig.Settings{})
+	if err := flagSet.Parse(nil); err != nil {
+		t.Fatalf("flag parse returned error: %v", err)
+	}
+	if want := filepath.Join(home, ".athenz/ca.cert.pem"); *signerTLSCAPath != want {
+		t.Fatalf("expected signer TLS CA default, got %q", *signerTLSCAPath)
 	}
 }
 
@@ -79,13 +114,13 @@ func TestExecuteTestCommand(t *testing.T) {
 
 		output := captureStdout(t, func() {
 			ExecuteTestCommand(
-				[]string{"-signer", "cfssl", "-ca", "stub://example.test/ca", "-debug"},
+				[]string{"-signer", "cfssl", "-ca-endpoint", "stub://example.test/ca", "-debug"},
 				flag.NewFlagSet("test", flag.ContinueOnError),
 				&appconfig.Settings{},
 			)
 		})
 
-		if !strings.Contains(output, "Signer CA URL is set as:stub://example.test/ca") {
+		if !strings.Contains(output, "Signer CA endpoint is set as:stub://example.test/ca") {
 			t.Fatalf("expected debug CA output, got %q", output)
 		}
 		if !strings.Contains(output, DEFAULT_APP_NAME+" test complete") {
@@ -153,7 +188,7 @@ func TestExecuteTestCommand(t *testing.T) {
 			}
 			return "jwt-token", nil
 		}
-		sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+		sendZTSCSR = func(name, endpoint, csr, attestationData, signerTLSCAPath string, headers *map[string][]string) (error, string) {
 			if name != "user.alice" {
 				t.Fatalf("expected derived common name, got %q", name)
 			}
@@ -429,7 +464,7 @@ func TestExecuteSignerFlows(t *testing.T) {
 				getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
 					return "cached-token", nil
 				}
-				sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+				sendZTSCSR = func(name, endpoint, csr, attestationData, signerTLSCAPath string, headers *map[string][]string) (error, string) {
 					if attestationData != "cached-token" {
 						t.Fatalf("expected access token attestation data, got %q", attestationData)
 					}
@@ -456,7 +491,7 @@ func TestExecuteSignerFlows(t *testing.T) {
 					t.Fatal("did not expect username extraction when common name is provided")
 					return "", nil
 				}
-				sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+				sendZTSCSR = func(name, endpoint, csr, attestationData, signerTLSCAPath string, headers *map[string][]string) (error, string) {
 					if attestationData != "cached-token" {
 						t.Fatalf("expected access token attestation data, got %q", attestationData)
 					}
@@ -786,7 +821,7 @@ func installDefaultCommandStubs(t *testing.T) {
 	getCrypkiRootCA = func(test bool, source string, headers *map[string][]string) (error, string) { return io.EOF, "" }
 	sendCFSSLCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) { return io.EOF, "" }
 	getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) { return io.EOF, "" }
-	sendZTSCSR = func(name, endpoint, csr, attestationData, trustSource string, headers *map[string][]string) (error, string) {
+	sendZTSCSR = func(name, endpoint, csr, attestationData, signerTLSCAPath string, headers *map[string][]string) (error, string) {
 		return io.EOF, ""
 	}
 	getZTSRootCA = func(test bool, source string, headers *map[string][]string) (error, string) { return io.EOF, "" }
@@ -810,6 +845,7 @@ func saveCmdGlobals() func() {
 	savedGetCFSSLRootCA := getCFSSLRootCA
 	savedSendZTSCSR := sendZTSCSR
 	savedGetZTSRootCA := getZTSRootCA
+	savedSignerTLSCAPath := signer.DEFAULT_SIGNER_TLS_CA_PATH
 	savedExitFunc := exitFunc
 	savedTestCommandInputReader := testCommandInputReader
 
@@ -831,6 +867,7 @@ func saveCmdGlobals() func() {
 		getCFSSLRootCA = savedGetCFSSLRootCA
 		sendZTSCSR = savedSendZTSCSR
 		getZTSRootCA = savedGetZTSRootCA
+		signer.DEFAULT_SIGNER_TLS_CA_PATH = savedSignerTLSCAPath
 		exitFunc = savedExitFunc
 		testCommandInputReader = savedTestCommandInputReader
 	}

@@ -20,13 +20,14 @@ func TestLoadAppliesConfigAndEnvOverrides(t *testing.T) {
 signer:
   name: zts
 endpoint: https://config.example/zts/v1/usercert
-ca_cert_path: ~/ca.pem
+ca_endpoint: https://config.example/zts/v1/ca
+signer_tls_ca_path: ~/ca.pem
 oidc:
   issuer: https://issuer.config.example
   username_claim: email
 zts:
   sign_url: https://zts.config.example/zts/v1/usercert
-  ca_cert_path: ~/zts-ca.pem
+  ca_endpoint: https://zts.config.example/zts/v1/ca
 `), 0600); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
@@ -34,6 +35,7 @@ zts:
 	t.Setenv(envConfigPath, configPath)
 	t.Setenv("HOME", home)
 	t.Setenv("ATHENZ_API_URL", "https://env.example/zts/v1/usercert")
+	t.Setenv("ATHENZ_CA_ENDPOINT", "https://env.example/zts/v1/ca")
 	t.Setenv("ATHENZ_ZTS_SIGN_URL", "https://zts.env.example/zts/v1/usercert")
 
 	settings, err := Load()
@@ -47,8 +49,11 @@ zts:
 	if settings.Endpoint != "https://env.example/zts/v1/usercert" {
 		t.Fatalf("expected endpoint from env, got %q", settings.Endpoint)
 	}
-	if settings.CAURL != caPath {
-		t.Fatalf("expected expanded CA path %q, got %q", caPath, settings.CAURL)
+	if settings.CAEndpoint != "https://env.example/zts/v1/ca" {
+		t.Fatalf("expected CA endpoint from env, got %q", settings.CAEndpoint)
+	}
+	if settings.SignerTLSCAPath != caPath {
+		t.Fatalf("expected expanded signer TLS CA path %q, got %q", caPath, settings.SignerTLSCAPath)
 	}
 	if settings.UserClaim != "email" {
 		t.Fatalf("expected user claim from config, got %q", settings.UserClaim)
@@ -162,6 +167,7 @@ func saveDefaults() func() {
 	ztsSignURL := signer.DEFAULT_SIGNER_ZTS_SIGN_URL
 	ztsCAURL := signer.DEFAULT_SIGNER_ZTS_CA_URL
 	ztsTimeout := signer.DEFAULT_SIGNER_ZTS_TIMEOUT
+	signerTLSCAPath := signer.DEFAULT_SIGNER_TLS_CA_PATH
 
 	return func() {
 		oidc.DEFAULT_OIDC_CLIENT_ID = oidcClientID
@@ -185,5 +191,6 @@ func saveDefaults() func() {
 		signer.DEFAULT_SIGNER_ZTS_SIGN_URL = ztsSignURL
 		signer.DEFAULT_SIGNER_ZTS_CA_URL = ztsCAURL
 		signer.DEFAULT_SIGNER_ZTS_TIMEOUT = ztsTimeout
+		signer.DEFAULT_SIGNER_TLS_CA_PATH = signerTLSCAPath
 	}
 }

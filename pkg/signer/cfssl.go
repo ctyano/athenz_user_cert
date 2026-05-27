@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
-	"time"
 )
 
 var (
@@ -38,9 +36,9 @@ func SendCFSSLCSR(url string, csr string, headers *map[string][]string) (error, 
 		return fmt.Errorf("Failed to marshal JSON: %v", err), ""
 	}
 
-	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CFSSL_TIMEOUT))
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+	client, err := newSignerHTTPClient(DEFAULT_SIGNER_CFSSL_TIMEOUT, DefaultSignerTLSCAPath())
+	if err != nil {
+		return err, ""
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
@@ -95,9 +93,9 @@ func GetCFSSLRootCA(test bool, url string, headers *map[string][]string) (error,
 		return fmt.Errorf("Failed to marshal JSON: %v", err), ""
 	}
 
-	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CFSSL_TIMEOUT))
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+	client, err := newSignerHTTPClient(DEFAULT_SIGNER_CFSSL_TIMEOUT, DefaultSignerTLSCAPath())
+	if err != nil {
+		return err, ""
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 )
 
 var (
@@ -44,9 +43,9 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 		return fmt.Errorf("Failed to marshal JSON: %s", err), ""
 	}
 
-	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CRYPKI_TIMEOUT))
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+	client, err := newSignerHTTPClient(DEFAULT_SIGNER_CRYPKI_TIMEOUT, DefaultSignerTLSCAPath())
+	if err != nil {
+		return err, ""
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
@@ -86,9 +85,9 @@ func SendCrypkiCSR(url string, csr string, headers *map[string][]string) (error,
 }
 
 func GetCrypkiRootCA(test bool, url string, headers *map[string][]string) (error, string) {
-	timeout, _ := strconv.Atoi(strings.TrimSpace(DEFAULT_SIGNER_CRYPKI_TIMEOUT))
-	client := &http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+	client, err := newSignerHTTPClient(DEFAULT_SIGNER_CRYPKI_TIMEOUT, DefaultSignerTLSCAPath())
+	if err != nil {
+		return err, ""
 	}
 
 	req, err := http.NewRequest("GET", url, bytes.NewBuffer(nil))

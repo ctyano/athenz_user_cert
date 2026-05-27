@@ -12,6 +12,7 @@ import (
 	"github.com/ctyano/athenz-user-cert/pkg/certificate"
 	appconfig "github.com/ctyano/athenz-user-cert/pkg/config"
 	"github.com/ctyano/athenz-user-cert/pkg/oidc"
+	"github.com/ctyano/athenz-user-cert/pkg/signer"
 )
 
 var testCommandInputReader io.Reader = os.Stdin
@@ -27,7 +28,8 @@ func executeTestCommand(arg []string, testFlagSet *flag.FlagSet, stdout io.Write
 	// Parse argument flags
 	signerName := testFlagSet.String("signer", defaultString(cfg.SignerName, DEFAULT_SIGNER_NAME), "Name for the certificate signer product (\"crypki\", \"cfssl\" or \"zts\")")
 	endpoint := testFlagSet.String("endpoint", cfg.Endpoint, "Target destination URL to send the certificate sign request (leave it empty to use default)")
-	caURL := testFlagSet.String("ca", cfg.CAURL, "Target destination URL or local PEM path to retrieve the CA certificate (leave it empty to use default)")
+	caEndpoint := testFlagSet.String("ca-endpoint", cfg.CAEndpoint, "Target destination API endpoint to retrieve the signer-issued CA certificate (leave it empty to use default)")
+	signerTLSCAPath := testFlagSet.String("signer-tls-ca", defaultString(cfg.SignerTLSCAPath, signer.DefaultSignerTLSCAPath()), "Local PEM path for the CA used to verify the signer server TLS certificate")
 	commonName := testFlagSet.String("cn", "", "Subject Common Name for the test certificate (default: \"<athenz user prefix>.<oauth user name>\")")
 	userNameClaim := testFlagSet.String("claim", defaultString(cfg.UserClaim, oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM), "JWT Claim Name to extract the user name")
 	userName := testFlagSet.String("username", "", "OIDC user name for password grant")
@@ -40,10 +42,12 @@ func executeTestCommand(arg []string, testFlagSet *flag.FlagSet, stdout io.Write
 		return err
 	}
 
-	resolveSignerEndpointCA(signerName, endpoint, caURL)
+	resolveSignerEndpoints(signerName, endpoint, caEndpoint)
+	applySignerTLSCAPath(signerTLSCAPath)
 	if *debug {
 		fmt.Fprintf(stdout, "Signer URL is set as:%s\n", *endpoint)
-		fmt.Fprintf(stdout, "Signer CA URL is set as:%s\n", *caURL)
+		fmt.Fprintf(stdout, "Signer CA endpoint is set as:%s\n", *caEndpoint)
+		fmt.Fprintf(stdout, "Signer TLS CA path is set as:%s\n", *signerTLSCAPath)
 	}
 
 	switch *signerName {
@@ -75,14 +79,14 @@ func executeTestCommand(arg []string, testFlagSet *flag.FlagSet, stdout io.Write
 		if err != nil {
 			return fmt.Errorf("Failed to get signed certificate: %v", err)
 		}
-		err, _ = getCrypkiRootCA(false, *caURL, &map[string][]string{
+		err, _ = getCrypkiRootCA(false, *caEndpoint, &map[string][]string{
 			"Authorization": {"Bearer " + accessToken},
 		})
 		if err != nil {
 			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
 	case "cfssl":
-		err, _ := getCFSSLRootCA(true, *caURL, &map[string][]string{})
+		err, _ := getCFSSLRootCA(true, *caEndpoint, &map[string][]string{})
 		if err != nil {
 			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}
@@ -108,11 +112,11 @@ func executeTestCommand(arg []string, testFlagSet *flag.FlagSet, stdout io.Write
 		if err != nil {
 			return err
 		}
-		err, _ = sendZTSCSR(*commonName, *endpoint, csr, accessToken, *caURL, nil)
+		err, _ = sendZTSCSR(*commonName, *endpoint, csr, accessToken, *signerTLSCAPath, nil)
 		if err != nil {
 			return fmt.Errorf("Failed to get signed certificate: %v", err)
 		}
-		err, _ = getZTSRootCA(false, *caURL, nil)
+		err, _ = getZTSRootCA(false, *caEndpoint, nil)
 		if err != nil {
 			return fmt.Errorf("Failed to get ca certificate: %v", err)
 		}

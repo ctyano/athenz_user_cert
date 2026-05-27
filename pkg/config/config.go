@@ -17,12 +17,13 @@ const (
 )
 
 type Settings struct {
-	ConfigPath   string
-	SignerName   string
-	Endpoint     string
-	CAURL        string
-	UserClaim    string
-	ResponseMode string
+	ConfigPath      string
+	SignerName      string
+	Endpoint        string
+	CAEndpoint      string
+	SignerTLSCAPath string
+	UserClaim       string
+	ResponseMode    string
 }
 
 func Load() (*Settings, error) {
@@ -38,12 +39,13 @@ func Load() (*Settings, error) {
 	applyPackageDefaults(values)
 
 	return &Settings{
-		ConfigPath:   configPath,
-		SignerName:   stringValue(values, []string{"signer.name", "signer"}, "ATHENZ_SIGNER"),
-		Endpoint:     stringValue(values, []string{"endpoint", "api_url", "api-url", "signer.endpoint"}, "ATHENZ_API_URL", "ATHENZ_ENDPOINT"),
-		CAURL:        stringValue(values, []string{"ca", "ca_url", "ca-url", "ca_cert_path", "ca-cert-path", "signer.ca_url", "signer.ca-url", "signer.ca_cert_path", "signer.ca-cert-path"}, "ATHENZ_CA_URL", "ATHENZ_CA_CERT_PATH"),
-		UserClaim:    stringValue(values, []string{"oidc.username_claim", "oidc.username-claim", "username_claim", "username-claim", "claim"}, "ATHENZ_OIDC_USERNAME_CLAIM", "ATHENZ_USERNAME_CLAIM"),
-		ResponseMode: stringValue(values, []string{"oidc.response_mode", "oidc.response-mode", "response_mode", "response-mode"}, "ATHENZ_OIDC_RESPONSE_MODE", "ATHENZ_RESPONSE_MODE"),
+		ConfigPath:      configPath,
+		SignerName:      stringValue(values, []string{"signer.name", "signer"}, "ATHENZ_SIGNER"),
+		Endpoint:        stringValue(values, []string{"endpoint", "api_url", "api-url", "signer.endpoint"}, "ATHENZ_API_URL", "ATHENZ_ENDPOINT"),
+		CAEndpoint:      stringValue(values, []string{"ca_endpoint", "ca-endpoint", "signer.ca_endpoint", "signer.ca-endpoint"}, "ATHENZ_CA_ENDPOINT"),
+		SignerTLSCAPath: stringValue(values, []string{"signer_tls_ca_path", "signer-tls-ca-path", "signer.tls_ca_path", "signer.tls-ca-path"}, "ATHENZ_SIGNER_TLS_CA_PATH"),
+		UserClaim:       stringValue(values, []string{"oidc.username_claim", "oidc.username-claim", "username_claim", "username-claim", "claim"}, "ATHENZ_OIDC_USERNAME_CLAIM", "ATHENZ_USERNAME_CLAIM"),
+		ResponseMode:    stringValue(values, []string{"oidc.response_mode", "oidc.response-mode", "response_mode", "response-mode"}, "ATHENZ_OIDC_RESPONSE_MODE", "ATHENZ_RESPONSE_MODE"),
 	}, nil
 }
 
@@ -91,18 +93,20 @@ func applyPackageDefaults(values map[string]any) {
 	setString(values, &oidc.DEFAULT_OIDC_ACCESS_TOKEN_PATH, []string{"oidc.access_token_path", "oidc.access-token-path", "access_token_path", "access-token-path"}, "ATHENZ_OIDC_ACCESS_TOKEN_PATH")
 	setString(values, &oidc.DEFAULT_OIDC_ATHENZ_USERNAME_CLAIM, []string{"oidc.username_claim", "oidc.username-claim", "username_claim", "username-claim", "claim"}, "ATHENZ_OIDC_USERNAME_CLAIM", "ATHENZ_USERNAME_CLAIM")
 
+	setString(values, &signer.DEFAULT_SIGNER_TLS_CA_PATH, []string{"signer_tls_ca_path", "signer-tls-ca-path", "signer.tls_ca_path", "signer.tls-ca-path"}, "ATHENZ_SIGNER_TLS_CA_PATH")
+
 	setString(values, &signer.DEFAULT_SIGNER_CRYPKI_SIGN_URL, []string{"crypki.sign_url", "crypki.sign-url", "signer.crypki.sign_url", "signer.crypki.sign-url"}, "ATHENZ_CRYPKI_SIGN_URL")
-	setString(values, &signer.DEFAULT_SIGNER_CRYPKI_CA_URL, []string{"crypki.ca_url", "crypki.ca-url", "crypki.ca_cert_path", "crypki.ca-cert-path", "signer.crypki.ca_url", "signer.crypki.ca-url", "signer.crypki.ca_cert_path", "signer.crypki.ca-cert-path"}, "ATHENZ_CRYPKI_CA_URL", "ATHENZ_CRYPKI_CA_CERT_PATH")
+	setString(values, &signer.DEFAULT_SIGNER_CRYPKI_CA_URL, []string{"crypki.ca_endpoint", "crypki.ca-endpoint", "signer.crypki.ca_endpoint", "signer.crypki.ca-endpoint"}, "ATHENZ_CRYPKI_CA_ENDPOINT")
 	setString(values, &signer.DEFAULT_SIGNER_CRYPKI_VALIDITY, []string{"crypki.validity", "signer.crypki.validity"}, "ATHENZ_CRYPKI_VALIDITY")
 	setString(values, &signer.DEFAULT_SIGNER_CRYPKI_IDENTIFIER, []string{"crypki.identifier", "signer.crypki.identifier"}, "ATHENZ_CRYPKI_IDENTIFIER")
 	setString(values, &signer.DEFAULT_SIGNER_CRYPKI_TIMEOUT, []string{"crypki.timeout", "signer.crypki.timeout"}, "ATHENZ_CRYPKI_TIMEOUT")
 
 	setString(values, &signer.DEFAULT_SIGNER_CFSSL_SIGN_URL, []string{"cfssl.sign_url", "cfssl.sign-url", "signer.cfssl.sign_url", "signer.cfssl.sign-url"}, "ATHENZ_CFSSL_SIGN_URL")
-	setString(values, &signer.DEFAULT_SIGNER_CFSSL_CA_URL, []string{"cfssl.ca_url", "cfssl.ca-url", "cfssl.ca_cert_path", "cfssl.ca-cert-path", "signer.cfssl.ca_url", "signer.cfssl.ca-url", "signer.cfssl.ca_cert_path", "signer.cfssl.ca-cert-path"}, "ATHENZ_CFSSL_CA_URL", "ATHENZ_CFSSL_CA_CERT_PATH")
+	setString(values, &signer.DEFAULT_SIGNER_CFSSL_CA_URL, []string{"cfssl.ca_endpoint", "cfssl.ca-endpoint", "signer.cfssl.ca_endpoint", "signer.cfssl.ca-endpoint"}, "ATHENZ_CFSSL_CA_ENDPOINT")
 	setString(values, &signer.DEFAULT_SIGNER_CFSSL_TIMEOUT, []string{"cfssl.timeout", "signer.cfssl.timeout"}, "ATHENZ_CFSSL_TIMEOUT")
 
 	setString(values, &signer.DEFAULT_SIGNER_ZTS_SIGN_URL, []string{"zts.sign_url", "zts.sign-url", "signer.zts.sign_url", "signer.zts.sign-url"}, "ATHENZ_ZTS_SIGN_URL")
-	setString(values, &signer.DEFAULT_SIGNER_ZTS_CA_URL, []string{"zts.ca_url", "zts.ca-url", "zts.ca_cert_path", "zts.ca-cert-path", "signer.zts.ca_url", "signer.zts.ca-url", "signer.zts.ca_cert_path", "signer.zts.ca-cert-path"}, "ATHENZ_ZTS_CA_URL", "ATHENZ_ZTS_CA_CERT_PATH")
+	setString(values, &signer.DEFAULT_SIGNER_ZTS_CA_URL, []string{"zts.ca_endpoint", "zts.ca-endpoint", "signer.zts.ca_endpoint", "signer.zts.ca-endpoint"}, "ATHENZ_ZTS_CA_ENDPOINT")
 	setString(values, &signer.DEFAULT_SIGNER_ZTS_TIMEOUT, []string{"zts.timeout", "signer.zts.timeout"}, "ATHENZ_ZTS_TIMEOUT")
 }
 
