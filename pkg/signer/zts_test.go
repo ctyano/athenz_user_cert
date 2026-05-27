@@ -2,6 +2,8 @@ package signer
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -42,50 +44,59 @@ func TestGetZTSRootCAParsesCACertBundle(t *testing.T) {
 	}
 }
 
-func TestNewZTSHTTPClientAllowsMissingDefaultLocalCAFile(t *testing.T) {
-	originalDefaultCAURL := DEFAULT_SIGNER_ZTS_CA_URL
-	DEFAULT_SIGNER_ZTS_CA_URL = t.TempDir() + "/missing-ca.pem"
-	t.Cleanup(func() {
-		DEFAULT_SIGNER_ZTS_CA_URL = originalDefaultCAURL
-	})
-
-	client, err := newZTSHTTPClient(DEFAULT_SIGNER_ZTS_CA_URL)
+func TestNewSignerHTTPClientAllowsEmptySignerTLSCAPath(t *testing.T) {
+	client, err := newSignerHTTPClient("10", "")
 	if err != nil {
-		t.Fatalf("newZTSHTTPClient returned error for missing default CA file: %v", err)
+		t.Fatalf("newSignerHTTPClient returned error: %v", err)
 	}
 	if client == nil {
-		t.Fatal("expected http client when default CA file is missing")
+		t.Fatal("expected http client")
 	}
 }
 
-func TestGetZTSRootCAReturnsEmptyWhenDefaultLocalCAFileMissing(t *testing.T) {
-	originalDefaultCAURL := DEFAULT_SIGNER_ZTS_CA_URL
-	DEFAULT_SIGNER_ZTS_CA_URL = t.TempDir() + "/missing-ca.pem"
-	t.Cleanup(func() {
-		DEFAULT_SIGNER_ZTS_CA_URL = originalDefaultCAURL
-	})
-
-	err, got := GetZTSRootCA(false, DEFAULT_SIGNER_ZTS_CA_URL, nil)
-	if err != nil {
-		t.Fatalf("GetZTSRootCA returned error for missing default CA file: %v", err)
-	}
-	if got != "" {
-		t.Fatalf("expected empty CA bundle when default CA file is missing, got %q", got)
+func TestNewSignerHTTPClientRejectsRemoteSignerTLSCAPath(t *testing.T) {
+	if _, err := newSignerHTTPClient("10", "https://zts.example/ca"); err == nil {
+		t.Fatal("expected remote signer TLS CA to return an error")
 	}
 }
 
-func TestNewZTSHTTPClientAllowsMissingDefaultLocalCAFileForRemoteSource(t *testing.T) {
-	originalDefaultCAURL := DEFAULT_SIGNER_ZTS_CA_URL
-	DEFAULT_SIGNER_ZTS_CA_URL = t.TempDir() + "/missing-ca.pem"
+func TestDefaultSignerTLSCAPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	originalDefault := DEFAULT_SIGNER_TLS_CA_PATH
 	t.Cleanup(func() {
-		DEFAULT_SIGNER_ZTS_CA_URL = originalDefaultCAURL
+		DEFAULT_SIGNER_TLS_CA_PATH = originalDefault
 	})
 
-	client, err := newZTSHTTPClient("https://zts.example/ca")
-	if err != nil {
-		t.Fatalf("newZTSHTTPClient returned error for remote source with missing default CA file: %v", err)
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "empty", path: "", want: ""},
+		{name: "absolute", path: "/tmp/ca.pem", want: "/tmp/ca.pem"},
+		{name: "remote", path: "https://zts.example/ca.pem", want: "https://zts.example/ca.pem"},
+		{name: "relative", path: ".athenz/ca.cert.pem", want: filepath.Join(home, ".athenz/ca.cert.pem")},
 	}
-	if client == nil {
-		t.Fatal("expected http client for remote source when default CA file is missing")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			DEFAULT_SIGNER_TLS_CA_PATH = tt.path
+			if got := DefaultSignerTLSCAPath(); got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestNewSignerHTTPClientUsesExplicitRelativePathAsIs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	if err := os.WriteFile(filepath.Join(home, "relative-ca.pem"), []byte(createSelfSignedCertPEM(t)), 0600); err != nil {
+		t.Fatalf("failed to write home CA file: %v", err)
+	}
+	if _, err := newSignerHTTPClient("10", "relative-ca.pem"); err == nil {
+		t.Fatal("expected explicit relative path to be read as-is")
 	}
 }

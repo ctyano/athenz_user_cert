@@ -37,3 +37,39 @@ https://github.com/ctyano/athenz-user-cert/releases
 ```
 make
 ```
+
+## Configuration
+
+The CLI can read optional YAML configuration from `$HOME/.athenz/config.yaml`.
+Set `ATHENZ_CONFIG_PATH` to use another file.
+
+Values are applied in this order:
+
+```
+command line flags > environment variables > config.yaml > build-time defaults
+```
+
+Example:
+
+```yaml
+signer:
+  name: zts
+
+endpoint: https://zts.example.com/zts/v1/usercert
+ca_endpoint: https://zts.example.com/zts/v1/ca
+signer_tls_ca_path: /usr/local/etc/athenz/zts-server-ca.pem
+
+oidc:
+  issuer: https://issuer.example.com
+  client_id: athenz-user-cert
+  scopes: openid email profile
+  listen_address: :8080
+  username_claim: email
+
+zts:
+  timeout: 10
+```
+
+Common environment variable overrides include `ATHENZ_API_URL`,
+`ATHENZ_CA_ENDPOINT`, `ATHENZ_SIGNER_TLS_CA_PATH`, `ATHENZ_OIDC_ISSUER`, and
+`ATHENZ_ZTS_SIGN_URL`.
