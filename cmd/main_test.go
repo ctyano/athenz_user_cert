@@ -54,11 +54,13 @@ func TestResolveSignerEndpoints(t *testing.T) {
 	}
 }
 
-func TestRemovedCAFlagAliasesAreRejected(t *testing.T) {
+func TestRemovedFlagAliasesAreRejected(t *testing.T) {
 	for _, args := range [][]string{
 		{"-sign-url", "https://example.test/sign"},
 		{"-ca-url", "https://example.test/ca"},
 		{"-ca", "https://example.test/ca"},
+		{"-username", "dex-user"},
+		{"-password-stdin"},
 	} {
 		t.Run(strings.Join(args[:1], ""), func(t *testing.T) {
 			flagSet := flag.NewFlagSet("test", flag.ContinueOnError)
@@ -141,7 +143,7 @@ func TestExecutePasswordGrant(t *testing.T) {
 		}
 
 		var output bytes.Buffer
-		err := execute([]string{"-signer", "crypki", "-username", "dex-user", "-password-stdin", "-debug"}, &output, &appconfig.Settings{})
+		err := execute([]string{"-signer", "crypki", "-oidc-user", "dex-user", "-oidc-password-stdin", "-debug"}, &output, &appconfig.Settings{})
 		if err != nil {
 			t.Fatalf("execute returned error: %v", err)
 		}
@@ -190,7 +192,7 @@ func TestExecutePasswordGrant(t *testing.T) {
 		}
 
 		var output bytes.Buffer
-		err := execute([]string{"-signer", "zts", "-username", "dex-user", "-password-stdin"}, &output, &appconfig.Settings{})
+		err := execute([]string{"-signer", "zts", "-oidc-user", "dex-user", "-oidc-password-stdin"}, &output, &appconfig.Settings{})
 		if err != nil {
 			t.Fatalf("execute returned error: %v", err)
 		}

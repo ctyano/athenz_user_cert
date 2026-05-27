@@ -231,8 +231,8 @@ type mainCommandFlags struct {
 	iparg         *string
 	uriarg        *string
 	responseMode  *string
-	userName      *string
-	passwordStdin *bool
+	oidcUser      *string
+	oidcPassStdin *bool
 }
 
 func addCommandFlags(flagSet *flag.FlagSet, cfg *appconfig.Settings) mainCommandFlags {
@@ -244,8 +244,8 @@ func addCommandFlags(flagSet *flag.FlagSet, cfg *appconfig.Settings) mainCommand
 	flags.iparg = flagSet.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
 	flags.uriarg = flagSet.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
 	flags.responseMode = flagSet.String("response-mode", defaultString(cfg.ResponseMode, "form_post"), "OAuth2 response_mode (\"query\" or \"form_post\")")
-	flags.userName = flagSet.String("username", "", "OIDC user name for password grant")
-	flags.passwordStdin = flagSet.Bool("password-stdin", false, "Read the OIDC password for password grant from stdin")
+	flags.oidcUser = flagSet.String("oidc-user", "", "OIDC user for password grant")
+	flags.oidcPassStdin = flagSet.Bool("oidc-password-stdin", false, "Read the OIDC password for password grant from stdin")
 	return flags
 }
 
@@ -269,10 +269,10 @@ func defaultString(value, fallback string) string {
 }
 
 func getCommandAccessToken(flags mainCommandFlags) (string, error) {
-	if strings.TrimSpace(*flags.userName) == "" && !*flags.passwordStdin {
+	if strings.TrimSpace(*flags.oidcUser) == "" && !*flags.oidcPassStdin {
 		return getAuthAccessToken(flags.responseMode, flags.signer.debug)
 	}
-	accessToken, err := getPasswordGrantToken(*flags.userName, *flags.passwordStdin, flags.signer.debug)
+	accessToken, err := getPasswordGrantToken(*flags.oidcUser, *flags.oidcPassStdin, flags.signer.debug)
 	if err != nil {
 		return "", err
 	}
@@ -282,7 +282,7 @@ func getCommandAccessToken(flags mainCommandFlags) (string, error) {
 func getPasswordGrantToken(userName string, passwordStdin bool, debug *bool) (string, error) {
 	userName = strings.TrimSpace(userName)
 	if userName == "" {
-		return "", fmt.Errorf("username is required for password grant (set -username)")
+		return "", fmt.Errorf("OIDC user is required for password grant (set -oidc-user)")
 	}
 
 	password, err := getPassword(passwordStdin)
@@ -301,7 +301,7 @@ func getPasswordGrantToken(userName string, passwordStdin bool, debug *bool) (st
 
 func getPassword(passwordStdin bool) (string, error) {
 	if !passwordStdin {
-		return "", fmt.Errorf("password is required for password grant (use -password-stdin)")
+		return "", fmt.Errorf("password is required for password grant (use -oidc-password-stdin)")
 	}
 
 	reader := bufio.NewReader(passwordInputReader)
