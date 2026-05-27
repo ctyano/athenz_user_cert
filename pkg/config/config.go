@@ -154,7 +154,7 @@ func valueAtPath(values map[string]any, key string) string {
 		}
 	}
 	switch current.(type) {
-	case map[string]any, []any:
+	case nil, map[string]any, []any:
 		return ""
 	default:
 		return strings.TrimSpace(fmt.Sprint(current))
