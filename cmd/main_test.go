@@ -8,8 +8,6 @@ import (
 	"encoding/pem"
 	"flag"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,12 +78,12 @@ func TestSignerTLSCAFlagUsesBuildDefault(t *testing.T) {
 	t.Setenv("HOME", home)
 	signer.DEFAULT_SIGNER_TLS_CA_PATH = ".athenz/ca.cert.pem"
 	flagSet := flag.NewFlagSet("test", flag.ContinueOnError)
-	_, _, _, signerTLSCAPath, _, _, _, _, _, _, _, _ := addCommandFlags(flagSet, &appconfig.Settings{})
+	flags := addCommandFlags(flagSet, &appconfig.Settings{})
 	if err := flagSet.Parse(nil); err != nil {
 		t.Fatalf("flag parse returned error: %v", err)
 	}
-	if want := filepath.Join(home, ".athenz/ca.cert.pem"); *signerTLSCAPath != want {
-		t.Fatalf("expected signer TLS CA default, got %q", *signerTLSCAPath)
+	if want := filepath.Join(home, ".athenz/ca.cert.pem"); *flags.signer.signerTLSCAPath != want {
+		t.Fatalf("expected signer TLS CA default, got %q", *flags.signer.signerTLSCAPath)
 	}
 }
 
@@ -105,41 +103,23 @@ func TestExecuteVersionCommand(t *testing.T) {
 	}
 }
 
-func TestExecuteTestCommand(t *testing.T) {
-	t.Run("cfssl ca check", func(t *testing.T) {
-		restore := stubDefaultTransport(t, func(r *http.Request) (*http.Response, error) {
-			return jsonResponse(http.StatusUnauthorized, ""), nil
-		})
-		defer restore()
-
-		output := captureStdout(t, func() {
-			ExecuteTestCommand(
-				[]string{"-signer", "cfssl", "-ca-endpoint", "stub://example.test/ca", "-debug"},
-				flag.NewFlagSet("test", flag.ContinueOnError),
-				&appconfig.Settings{},
-			)
-		})
-
-		if !strings.Contains(output, "Signer CA endpoint is set as:stub://example.test/ca") {
-			t.Fatalf("expected debug CA output, got %q", output)
-		}
-		if !strings.Contains(output, DEFAULT_APP_NAME+" test complete") {
-			t.Fatalf("expected success output, got %q", output)
-		}
-	})
-
+func TestExecutePasswordGrant(t *testing.T) {
 	t.Run("crypki issues certificate with stdin password", func(t *testing.T) {
 		restore := saveCmdGlobals()
 		defer restore()
 		installDefaultCommandStubs(t)
 		installSuccessfulGenerateCSR(t)
 
-		testCommandInputReader = strings.NewReader("secret\n")
+		passwordInputReader = strings.NewReader("secret\n")
 		getPasswordGrantAccessToken = func(username, password string, debug *bool) (string, error) {
 			if username != "dex-user" || password != "secret" {
 				t.Fatalf("unexpected password grant credentials %q/%q", username, password)
 			}
 			return "jwt-token", nil
+		}
+		getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+			t.Fatal("did not expect auth code flow when username is set")
+			return "", nil
 		}
 		sendCrypkiCSR = func(endpoint, csr string, headers *map[string][]string) (error, string) {
 			if got := (*headers)["Authorization"][0]; got != "Bearer jwt-token" {
@@ -160,18 +140,16 @@ func TestExecuteTestCommand(t *testing.T) {
 			return nil, "ca"
 		}
 
-		output := captureStdout(t, func() {
-			ExecuteTestCommand(
-				[]string{"-signer", "crypki", "-username", "dex-user", "-password-stdin", "-debug"},
-				flag.NewFlagSet("test", flag.ContinueOnError),
-				&appconfig.Settings{},
-			)
-		})
-		if !strings.Contains(output, "Access Token retrieved Successfully") {
-			t.Fatalf("expected access token debug output, got %q", output)
+		var output bytes.Buffer
+		err := execute([]string{"-signer", "crypki", "-username", "dex-user", "-password-stdin", "-debug"}, &output, &appconfig.Settings{})
+		if err != nil {
+			t.Fatalf("execute returned error: %v", err)
 		}
-		if !strings.Contains(output, DEFAULT_APP_NAME+" test complete") {
-			t.Fatalf("expected success output, got %q", output)
+		if !strings.Contains(output.String(), "Access Token retrieved Successfully") {
+			t.Fatalf("expected access token debug output, got %q", output.String())
+		}
+		if !strings.Contains(output.String(), "Signed Athenz User certificate is successfully stored at:") {
+			t.Fatalf("expected saved certificate output, got %q", output.String())
 		}
 	})
 
@@ -181,12 +159,16 @@ func TestExecuteTestCommand(t *testing.T) {
 		installDefaultCommandStubs(t)
 		installSuccessfulGenerateCSR(t)
 
-		testCommandInputReader = strings.NewReader("secret\n")
+		passwordInputReader = strings.NewReader("secret\n")
 		getPasswordGrantAccessToken = func(username, password string, debug *bool) (string, error) {
 			if username != "dex-user" || password != "secret" {
 				t.Fatalf("unexpected password grant credentials %q/%q", username, password)
 			}
 			return "jwt-token", nil
+		}
+		getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+			t.Fatal("did not expect auth code flow when username is set")
+			return "", nil
 		}
 		sendZTSCSR = func(name, endpoint, csr, attestationData, signerTLSCAPath string, headers *map[string][]string) (error, string) {
 			if name != "user.alice" {
@@ -207,61 +189,15 @@ func TestExecuteTestCommand(t *testing.T) {
 			return nil, "ca"
 		}
 
-		output := captureStdout(t, func() {
-			ExecuteTestCommand(
-				[]string{"-signer", "zts", "-username", "dex-user", "-password-stdin"},
-				flag.NewFlagSet("test", flag.ContinueOnError),
-				&appconfig.Settings{},
-			)
-		})
-		if !strings.Contains(output, DEFAULT_APP_NAME+" test complete") {
-			t.Fatalf("expected success output, got %q", output)
+		var output bytes.Buffer
+		err := execute([]string{"-signer", "zts", "-username", "dex-user", "-password-stdin"}, &output, &appconfig.Settings{})
+		if err != nil {
+			t.Fatalf("execute returned error: %v", err)
+		}
+		if !strings.Contains(output.String(), "Signed Athenz User certificate is successfully stored at:") {
+			t.Fatalf("expected saved certificate output, got %q", output.String())
 		}
 	})
-}
-
-func TestExecuteTestCommandReturnsError(t *testing.T) {
-	restore := saveCmdGlobals()
-	defer restore()
-	installDefaultCommandStubs(t)
-
-	getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
-		return io.EOF, ""
-	}
-
-	var output bytes.Buffer
-	err := executeTestCommand([]string{"-signer", "cfssl"}, flag.NewFlagSet("test", flag.ContinueOnError), &output, &appconfig.Settings{})
-	if err == nil {
-		t.Fatal("expected executeTestCommand to return an error")
-	}
-	if !strings.Contains(err.Error(), "Failed to get ca certificate") {
-		t.Fatalf("expected CA retrieval error, got %v", err)
-	}
-}
-
-func TestExecuteTestCommandWrapperCallsExitOnError(t *testing.T) {
-	restore := saveCmdGlobals()
-	defer restore()
-	installDefaultCommandStubs(t)
-
-	getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
-		return io.EOF, ""
-	}
-
-	exitCode := -1
-	exitFunc = func(code int) {
-		exitCode = code
-	}
-
-	output := captureStdout(t, func() {
-		ExecuteTestCommand([]string{"-signer", "cfssl"}, flag.NewFlagSet("test", flag.ContinueOnError), &appconfig.Settings{})
-	})
-	if exitCode != 1 {
-		t.Fatalf("expected exit code 1, got %d", exitCode)
-	}
-	if !strings.Contains(output, "Failed to get ca certificate") {
-		t.Fatalf("expected error output, got %q", output)
-	}
 }
 
 func TestRunMain(t *testing.T) {
@@ -583,23 +519,6 @@ func TestExecuteSubcommands(t *testing.T) {
 			t.Fatalf("execute returned error: %v", err)
 		}
 	})
-
-	t.Run("test", func(t *testing.T) {
-		restore := saveCmdGlobals()
-		defer restore()
-		installDefaultCommandStubs(t)
-		getCFSSLRootCA = func(test bool, source string, headers *map[string][]string) (error, string) {
-			return nil, ""
-		}
-
-		var output bytes.Buffer
-		if err := execute([]string{"test", "-signer", "cfssl"}, &output, &appconfig.Settings{}); err != nil {
-			t.Fatalf("execute returned error: %v", err)
-		}
-		if !strings.Contains(output.String(), DEFAULT_APP_NAME+" test complete") {
-			t.Fatalf("expected test command output, got %q", output.String())
-		}
-	})
 }
 
 func TestExecuteAdditionalErrorPaths(t *testing.T) {
@@ -847,7 +766,7 @@ func saveCmdGlobals() func() {
 	savedGetZTSRootCA := getZTSRootCA
 	savedSignerTLSCAPath := signer.DEFAULT_SIGNER_TLS_CA_PATH
 	savedExitFunc := exitFunc
-	savedTestCommandInputReader := testCommandInputReader
+	savedPasswordInputReader := passwordInputReader
 
 	return func() {
 		loadConfig = savedLoadConfig
@@ -869,7 +788,7 @@ func saveCmdGlobals() func() {
 		getZTSRootCA = savedGetZTSRootCA
 		signer.DEFAULT_SIGNER_TLS_CA_PATH = savedSignerTLSCAPath
 		exitFunc = savedExitFunc
-		testCommandInputReader = savedTestCommandInputReader
+		passwordInputReader = savedPasswordInputReader
 	}
 }
 
@@ -899,34 +818,4 @@ func captureStdout(t *testing.T, fn func()) string {
 	}
 
 	return string(data)
-}
-
-func stubDefaultTransport(t *testing.T, roundTrip func(*http.Request) (*http.Response, error)) func() {
-	t.Helper()
-
-	original := http.DefaultTransport
-	transport := original.(*http.Transport).Clone()
-	transport.RegisterProtocol("stub", roundTripFunc(roundTrip))
-	http.DefaultTransport = transport
-	return func() {
-		http.DefaultTransport = original
-	}
-}
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
-	return f(r)
-}
-
-func jsonResponse(statusCode int, body string) *http.Response {
-	return &http.Response{
-		StatusCode: statusCode,
-		Status:     http.StatusText(statusCode),
-		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Request:    &http.Request{URL: &url.URL{Scheme: "stub", Host: "example.test"}},
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-	}
 }
