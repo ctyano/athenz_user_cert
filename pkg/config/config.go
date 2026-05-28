@@ -22,6 +22,7 @@ type Settings struct {
 	Endpoint        string
 	CAEndpoint      string
 	SignerTLSCAPath string
+	OIDCIssuer      string
 	UserClaim       string
 	ResponseMode    string
 }
@@ -44,6 +45,7 @@ func Load() (*Settings, error) {
 		Endpoint:        stringValue(values, []string{"endpoint", "api_url", "api-url", "signer.endpoint"}, "ATHENZ_API_URL", "ATHENZ_ENDPOINT"),
 		CAEndpoint:      stringValue(values, []string{"ca_endpoint", "ca-endpoint", "signer.ca_endpoint", "signer.ca-endpoint"}, "ATHENZ_CA_ENDPOINT"),
 		SignerTLSCAPath: stringValue(values, []string{"signer_tls_ca_path", "signer-tls-ca-path", "signer.tls_ca_path", "signer.tls-ca-path"}, "ATHENZ_SIGNER_TLS_CA_PATH"),
+		OIDCIssuer:      stringValue(values, []string{"oidc.issuer", "issuer"}, "ATHENZ_OIDC_ISSUER", "ATHENZ_ISSUER"),
 		UserClaim:       stringValue(values, []string{"oidc.username_claim", "oidc.username-claim", "username_claim", "username-claim", "claim"}, "ATHENZ_OIDC_USERNAME_CLAIM", "ATHENZ_USERNAME_CLAIM"),
 		ResponseMode:    stringValue(values, []string{"oidc.response_mode", "oidc.response-mode", "response_mode", "response-mode"}, "ATHENZ_OIDC_RESPONSE_MODE", "ATHENZ_RESPONSE_MODE"),
 	}, nil
