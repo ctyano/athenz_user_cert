@@ -73,3 +73,6 @@ zts:
 Common environment variable overrides include `ATHENZ_API_URL`,
 `ATHENZ_CA_ENDPOINT`, `ATHENZ_SIGNER_TLS_CA_PATH`, `ATHENZ_OIDC_ISSUER`, and
 `ATHENZ_ZTS_SIGN_URL`.
+
+Use `-oidc-issuer https://issuer.example.com` to override the OIDC issuer for a
+single CLI execution.

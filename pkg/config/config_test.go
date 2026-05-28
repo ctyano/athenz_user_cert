@@ -55,6 +55,9 @@ zts:
 	if settings.SignerTLSCAPath != caPath {
 		t.Fatalf("expected expanded signer TLS CA path %q, got %q", caPath, settings.SignerTLSCAPath)
 	}
+	if settings.OIDCIssuer != "https://issuer.config.example" {
+		t.Fatalf("expected oidc issuer from config, got %q", settings.OIDCIssuer)
+	}
 	if settings.UserClaim != "email" {
 		t.Fatalf("expected user claim from config, got %q", settings.UserClaim)
 	}

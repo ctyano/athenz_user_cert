@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	appconfig "github.com/ctyano/athenz-user-cert/pkg/config"
+	"github.com/ctyano/athenz-user-cert/pkg/oidc"
 	"github.com/ctyano/athenz-user-cert/pkg/signer"
 )
 
@@ -87,6 +88,59 @@ func TestSignerTLSCAFlagUsesBuildDefault(t *testing.T) {
 	if want := filepath.Join(home, ".athenz/ca.cert.pem"); *flags.signer.signerTLSCAPath != want {
 		t.Fatalf("expected signer TLS CA default, got %q", *flags.signer.signerTLSCAPath)
 	}
+}
+
+func TestOIDCIssuerFlag(t *testing.T) {
+	t.Run("uses config value as default", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+
+		flagSet := flag.NewFlagSet("test", flag.ContinueOnError)
+		flags := addCommandFlags(flagSet, &appconfig.Settings{OIDCIssuer: "https://issuer.config.example"})
+		if err := flagSet.Parse(nil); err != nil {
+			t.Fatalf("flag parse returned error: %v", err)
+		}
+		if *flags.oidcIssuer != "https://issuer.config.example" {
+			t.Fatalf("expected issuer from config, got %q", *flags.oidcIssuer)
+		}
+	})
+
+	t.Run("overrides package default", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+
+		oidc.DEFAULT_OIDC_ISSUER = "https://issuer.default.example"
+		flagSet := flag.NewFlagSet("test", flag.ContinueOnError)
+		flags := addCommandFlags(flagSet, &appconfig.Settings{})
+		if err := flagSet.Parse([]string{"-oidc-issuer", "https://issuer.flag.example"}); err != nil {
+			t.Fatalf("flag parse returned error: %v", err)
+		}
+
+		applyOIDCFlagOverrides(flags)
+
+		if oidc.DEFAULT_OIDC_ISSUER != "https://issuer.flag.example" {
+			t.Fatalf("expected issuer from flag, got %q", oidc.DEFAULT_OIDC_ISSUER)
+		}
+	})
+
+	t.Run("execute applies override before authentication", func(t *testing.T) {
+		restore := saveCmdGlobals()
+		defer restore()
+		installDefaultCommandStubs(t)
+
+		getAuthAccessToken = func(responseMode *string, debug *bool) (string, error) {
+			if oidc.DEFAULT_OIDC_ISSUER != "https://issuer.flag.example" {
+				t.Fatalf("expected issuer override before auth, got %q", oidc.DEFAULT_OIDC_ISSUER)
+			}
+			return "", io.EOF
+		}
+
+		var output bytes.Buffer
+		err := execute([]string{"-oidc-issuer", "https://issuer.flag.example"}, &output, &appconfig.Settings{})
+		if err == nil {
+			t.Fatal("expected execute to fail after auth stub")
+		}
+	})
 }
 
 func TestExecuteVersionCommand(t *testing.T) {
@@ -767,6 +821,7 @@ func saveCmdGlobals() func() {
 	savedSendZTSCSR := sendZTSCSR
 	savedGetZTSRootCA := getZTSRootCA
 	savedSignerTLSCAPath := signer.DEFAULT_SIGNER_TLS_CA_PATH
+	savedOIDCIssuer := oidc.DEFAULT_OIDC_ISSUER
 	savedExitFunc := exitFunc
 	savedPasswordInputReader := passwordInputReader
 
@@ -789,6 +844,7 @@ func saveCmdGlobals() func() {
 		sendZTSCSR = savedSendZTSCSR
 		getZTSRootCA = savedGetZTSRootCA
 		signer.DEFAULT_SIGNER_TLS_CA_PATH = savedSignerTLSCAPath
+		oidc.DEFAULT_OIDC_ISSUER = savedOIDCIssuer
 		exitFunc = savedExitFunc
 		passwordInputReader = savedPasswordInputReader
 	}

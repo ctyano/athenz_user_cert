@@ -96,6 +96,7 @@ Options:
 	if err := flagSet.Parse(args); err != nil {
 		return err
 	}
+	applyOIDCFlagOverrides(flags)
 
 	var accesstoken string
 	var err error
@@ -231,6 +232,7 @@ type mainCommandFlags struct {
 	iparg         *string
 	uriarg        *string
 	responseMode  *string
+	oidcIssuer    *string
 	oidcUser      *string
 	oidcPassStdin *bool
 }
@@ -244,6 +246,7 @@ func addCommandFlags(flagSet *flag.FlagSet, cfg *appconfig.Settings) mainCommand
 	flags.iparg = flagSet.String("ip", "", "Comma-separated SANs(Subject Alternative Names) as IPs for the certificate")
 	flags.uriarg = flagSet.String("uri", "", "Comma-separated SANs(Subject Alternative Names) as URIs for the certificate")
 	flags.responseMode = flagSet.String("response-mode", defaultString(cfg.ResponseMode, "form_post"), "OAuth2 response_mode (\"query\" or \"form_post\")")
+	flags.oidcIssuer = flagSet.String("oidc-issuer", defaultString(cfg.OIDCIssuer, oidc.DEFAULT_OIDC_ISSUER), "OpenID Connect issuer URL")
 	flags.oidcUser = flagSet.String("oidc-user", "", "OIDC user for password grant")
 	flags.oidcPassStdin = flagSet.Bool("oidc-password-stdin", false, "Read the OIDC password for password grant from stdin")
 	return flags
@@ -266,6 +269,12 @@ func defaultString(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func applyOIDCFlagOverrides(flags mainCommandFlags) {
+	if flags.oidcIssuer != nil {
+		oidc.DEFAULT_OIDC_ISSUER = strings.TrimSpace(*flags.oidcIssuer)
+	}
 }
 
 func getCommandAccessToken(flags mainCommandFlags) (string, error) {
