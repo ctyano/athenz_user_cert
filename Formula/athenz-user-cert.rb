@@ -5,20 +5,20 @@
 class AthenzUserCert < Formula
   desc "CLI to retrieve Athenz-compatible User Certificate"
   homepage "https://github.com/ctyano/athenz-user-cert"
-  version "0.0.126"
+  version "0.0.127"
 
   on_macos do
     on_intel do
-      url "https://github.com/ctyano/athenz-user-cert/releases/download/v0.0.126/athenz-user-cert_0.0.126_darwin_amd64.zip"
-      sha256 "be81b6cc0def0f2e0e5ab22fbc717ced80ac7ac209c77095cd1c5bc5c820ed1a"
+      url "https://github.com/ctyano/athenz-user-cert/releases/download/v0.0.127/athenz-user-cert_0.0.127_darwin_amd64.zip"
+      sha256 "8477ae33bcba2f7e9c74007a2593fecd223af395d301ad3add0148addf2b6526"
 
       def install
         bin.install "athenzusercert"
       end
     end
     on_arm do
-      url "https://github.com/ctyano/athenz-user-cert/releases/download/v0.0.126/athenz-user-cert_0.0.126_darwin_arm64.zip"
-      sha256 "f4804b952a3e31b2446217a6144b3f490f63eed1eda9e70644808c0c0e1c48f3"
+      url "https://github.com/ctyano/athenz-user-cert/releases/download/v0.0.127/athenz-user-cert_0.0.127_darwin_arm64.zip"
+      sha256 "03ba2d01255165b990747235b8bb5513cd3c55cd795dbc82333949d0631911e4"
 
       def install
         bin.install "athenzusercert"
@@ -29,8 +29,8 @@ class AthenzUserCert < Formula
   on_linux do
     on_intel do
       if Hardware::CPU.is_64_bit?
-        url "https://github.com/ctyano/athenz-user-cert/releases/download/v0.0.126/athenz-user-cert_0.0.126_linux_amd64.zip"
-        sha256 "3bb3d2bedb74d2f6b2767d14508caae27618efaf9c5988c1774acdbe01e6ee34"
+        url "https://github.com/ctyano/athenz-user-cert/releases/download/v0.0.127/athenz-user-cert_0.0.127_linux_amd64.zip"
+        sha256 "be9c6db5faca4ca0bf8bd5a758a0f7f0a018bb6920ca924f001f554c23445062"
 
         def install
           bin.install "athenzusercert"
@@ -39,8 +39,8 @@ class AthenzUserCert < Formula
     end
     on_arm do
       if Hardware::CPU.is_64_bit?
-        url "https://github.com/ctyano/athenz-user-cert/releases/download/v0.0.126/athenz-user-cert_0.0.126_linux_arm64.zip"
-        sha256 "388657cedf752b04bf463970c3b06d65f2c7fa6c4bfbba1057938a51ce5be787"
+        url "https://github.com/ctyano/athenz-user-cert/releases/download/v0.0.127/athenz-user-cert_0.0.127_linux_arm64.zip"
+        sha256 "3fc8739be0c90f7a015207fcbee863e39cd5c9534b2f27f7fc91d7f5bb421eca"
 
         def install
           bin.install "athenzusercert"
