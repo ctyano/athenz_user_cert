@@ -18,13 +18,13 @@ env:
   # DOCKER_REGISTRY_OWNER: ${{ env.CI_REPOSITORY_OWNER }}
   # DOCKER_REGISTRY_IMAGE: ${{ env.CI_REPOSITORY_NAME }}
   # DOCKER_REGISTRY_TOKEN: ${{ secrets.DOCKER_REGISTRY_TOKEN }}
-  DOCKER_TAEGET_PLATFORMS: linux/amd64,linux/arm64
+  DOCKER_TARGET_PLATFORMS: linux/amd64,linux/arm64
   # DOCKER_BUILD_ARGS: |
   NFPM_SOURCE_IMAGES: athenz-user-cert
   NFPM_TARGET_PACKAGER: apk,deb,rpm
   NFPM_TARGET_COMPONENTS: athenz-user-cert
   GITHUB_REPOSITORY: ctyano/athenz-user-cert
-  TARBALL_TAEGET_PLATFORMS: darwin/amd64,darwin/arm64
+  TARBALL_TARGET_PLATFORMS: darwin/amd64,darwin/arm64
   TRACKING_GIT_REPO: ctyano/athenz-user-cert
 
 jobs:
@@ -77,30 +77,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-tags: true
-
-      # A GitHub Action to create git tags
-      #
-      # Using the GITHUB_TOKEN in a workflow
-      # https://docs.github.com/en/actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
-      # When you use the repository's GITHUB_TOKEN to perform tasks, events triggered by the GITHUB_TOKEN, with the exception of workflow_dispatch and repository_dispatch, will not create a new workflow run.
-      # This prevents you from accidentally creating recursive workflow runs.
-      # For example, if a workflow run pushes code using the repository's GITHUB_TOKEN, a new workflow will not run even when the repository contains a workflow configured to run when push events occur.
-      -
-        name: Create git tag
-        id: tag
-        if: ${{ env.CURRENT_VERSION != '' && env.VERSION != '' && env.VERSION != env.CURRENT_VERSION }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
-        run: |
-          set -x
-          latest_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
-          version=${latest_tag#v}
-          IFS='.' read -r major minor patch <<< "$version"
-          patch=$((patch + 1))
-          next_version=v$major.$minor.$patch
-          git tag -f $next_version
-          git remote set-url origin https://x-access-token:${HOMEBREW_TOKEN}@github.com/${{ github.repository }}
-          git push -f origin tag $next_version
 
       # This action sets up a go environment for use in actions by:
       # - Optionally downloading and caching a version of Go by version and adding to PATH.
